@@ -1,13 +1,14 @@
 // =============================================================================
-//  FASLÅSET — DSP-kärnan. Kick + bas, faslåsta, sample-exakt.
+//  FASLÅSET — DSP-kärnan, version 2. Samplad kick + genererad bas, faslåsta.
 //
 //  Header-only, ren C++17, inga JUCE-beroenden: testerna kompilerar den med g++.
 //  Ingen allokering i process(). Inga lås. Allt som kommer utifrån saneras.
 //
 //  Grundregel: kick och bas låter ALDRIG samtidigt.
-//    1. Kicken stängs först när dess sinus passerar noll uppåt.
-//    2. Basen startar med fas 0 exakt på den nollgenomgången (med subsample-precision).
-//    3. Giljotinen rampar ner basen så att den är exakt 0 innan nästa händelse.
+//    1. Kicken (ett sample) stängs först när vågformen passerar noll uppåt.
+//    2. Basen startar med fas 0 exakt på den nollgenomgången (subsample-precision).
+//    3. Varje basnot tonar ut med en mjuk cosinus-release som landar på exakt 0
+//       innan nästa händelse. Inga hugg, inga klick.
 // =============================================================================
 #pragma once
 
@@ -20,12 +21,101 @@
 namespace fl
 {
 
-constexpr double kPi    = 3.14159265358979323846;
+constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = 6.28318530717958647692;
+constexpr int kMaxBeats = 8;
+constexpr int kSlots = 3;   // basnoter per slag (16-del 2, 3, 4)
+
+// -----------------------------------------------------------------------------
+//  Basmönstret. Varje ruta är ett atomärt 32-bitarsord, så GUI:t kan ändra
+//  medan ljudet spelar utan lås.
+// -----------------------------------------------------------------------------
+struct Cell
+{
+    bool on = false;
+    int degree = 0;   // skalsteg från grundtonen, -7..+14
+    int oct = 0;      // -1, 0, +1
+    int vel = 110;    // 1..127
+
+    uint32_t pack() const noexcept
+    {
+        return (on ? 1u : 0u) | ((uint32_t) (std::clamp (degree, -7, 14) + 64) << 8)
+             | ((uint32_t) (std::clamp (oct, -1, 1) + 1) << 16) | ((uint32_t) std::clamp (vel, 1, 127) << 24);
+    }
+    static Cell unpack (uint32_t w) noexcept
+    {
+        Cell c;
+        c.on = (w & 1u) != 0;
+        c.degree = std::clamp ((int) ((w >> 8) & 0xffu) - 64, -7, 14);
+        c.oct = std::clamp ((int) ((w >> 16) & 0x3u) - 1, -1, 1);
+        c.vel = std::clamp ((int) ((w >> 24) & 0xffu), 1, 127);
+        return c;
+    }
+};
+
+class Pattern
+{
+public:
+    Pattern() { clear(); }
+    Cell get (int beat, int slot) const noexcept
+    {
+        return Cell::unpack (cells[idx (beat, slot)].load (std::memory_order_relaxed));
+    }
+    void set (int beat, int slot, const Cell& c) noexcept
+    {
+        cells[idx (beat, slot)].store (c.pack(), std::memory_order_relaxed);
+    }
+    void clear() noexcept
+    {
+        for (auto& c : cells) c.store (Cell().pack(), std::memory_order_relaxed);
+    }
+
+private:
+    static size_t idx (int b, int s) noexcept
+    {
+        return (size_t) (std::clamp (b, 0, kMaxBeats - 1) * kSlots + std::clamp (s, 0, kSlots - 1));
+    }
+    std::array<std::atomic<uint32_t>, kMaxBeats * kSlots> cells;
+};
+
+// -----------------------------------------------------------------------------
+//  Skalor (7 steg, halvtoner från grundtonen)
+// -----------------------------------------------------------------------------
+constexpr int kNumScales = 6;
+inline const int* scaleSteps (int s) noexcept
+{
+    static const int t[kNumScales][7] = {
+        { 0, 1, 3, 5, 7, 8, 10 },   // FRYGISK (psy-klassikern)
+        { 0, 2, 3, 5, 7, 8, 10 },   // MOLL
+        { 0, 2, 3, 5, 7, 8, 11 },   // HARMONISK MOLL
+        { 0, 1, 4, 5, 7, 8, 10 },   // FRYGISK DUR (österländsk)
+        { 0, 2, 3, 5, 7, 9, 10 },   // DORISK
+        { 0, 3, 5, 7, 10, 12, 15 }, // PENTATON MOLL
+    };
+    return t[std::clamp (s, 0, kNumScales - 1)];
+}
+
+inline int degreeToSemis (int scale, int degree) noexcept
+{
+    const int* st = scaleSteps (scale);
+    int o = 0;
+    while (degree < 0) { degree += 7; --o; }
+    while (degree >= 7) { degree -= 7; ++o; }
+    return st[degree] + 12 * o;
+}
+
+// -----------------------------------------------------------------------------
+//  Kick-sample: mono, oföränderligt när det väl laddats.
+// -----------------------------------------------------------------------------
+struct KickSample
+{
+    const float* data = nullptr;
+    int length = 0;
+    double sampleRate = 48000.0;
+};
 
 // -----------------------------------------------------------------------------
 //  Oscilloskop: lock-free ring. Ljudtråden skriver, GUI-tråden läser.
-//  Full ring = ramar kastas. Ljudtråden väntar aldrig på grafiken.
 // -----------------------------------------------------------------------------
 enum ScopeFlags : uint32_t
 {
@@ -43,7 +133,7 @@ struct ScopeFrame
 class ScopeFifo
 {
 public:
-    static constexpr uint32_t kSize = 16384;   // 2^n
+    static constexpr uint32_t kSize = 16384;
     static constexpr uint32_t kMask = kSize - 1;
 
     inline void push (float k, float b, uint32_t flags) noexcept
@@ -83,13 +173,13 @@ struct Transport
 {
     bool isPlaying = false;
     double bpm = 0.0;
-    double ppqAtStart = 0.0;   // kvartsnoter vid blockets första sample
+    double ppqAtStart = 0.0;
 };
 
 enum class Mode : int
 {
-    Spikrakt = 0,   // psy: K-B-B-B, varje 16-del huggs av före nästa
-    Slap = 1        // techno: en lång sub per slag, startar på kickens nollgenomgång
+    Spikrakt = 0,   // psy: K-B-B-B, en basnot per 16-del enligt mönstret
+    Slap = 1        // techno: en lång basnot per slag, startar på kickens nollgenomgång
 };
 
 struct Params
@@ -97,26 +187,27 @@ struct Params
     Mode mode = Mode::Spikrakt;
 
     // KICK
-    float kickStartHz = 220.0f;
-    float kickEndHz = 50.0f;
-    float kickPitchMs = 18.0f;    // tidskonstant för pitch-svepet
-    float kickLengthMs = 90.0f;   // tid till -60 dB
-    float kickDrive = 1.5f;       // 1 = ren
+    float kickTune = 0.0f;        // halvtoner
+    float kickLengthMs = 85.0f;   // efter detta stängs kicken på nästa nollgenomgång
+    float kickDrive = 1.0f;
     float kickLevel = 1.0f;
 
     // BAS
-    float bassNote = 29.0f;       // MIDI-not (29 = F1)
+    int rootNote = 29;            // MIDI (29 = F1)
+    int scale = 0;
+    int beats = 4;                // mönsterlängd i slag, 1..8
     float bassForm = 0.85f;       // 0 = sinus, 1 = såg
-    float bassCutoff = 180.0f;    // Hz
-    float bassReso = 0.3f;        // 0..0.9
-    float bassEnv = 0.7f;         // filterenvelope, 0..1 (upp till 5 oktaver)
-    float bassEnvMs = 60.0f;      // filterenvelopens tidskonstant
-    float bassDecayMs = 90.0f;    // volymens tidskonstant
-    float bassDrive = 1.4f;       // 1 = ren
+    float bassCutoff = 180.0f;
+    float bassReso = 0.3f;
+    float bassEnv = 0.7f;
+    float bassEnvMs = 60.0f;
+    float bassDecayMs = 120.0f;
+    float bassGate = 0.85f;       // notlängd, andel av platsen
+    float bassDrive = 1.4f;
     float bassLevel = 0.8f;
 
     // MASTER
-    float guillotineMs = 0.7f;
+    float releaseMs = 3.0f;       // mjuk utklingning i slutet av varje basnot
     float outGain = 0.8f;
 };
 
@@ -126,6 +217,14 @@ inline double midiToHz (double note) { return 440.0 * std::pow (2.0, (note - 69.
 inline double shape (double x, double drive, double norm) noexcept
 {
     return drive <= 1.001 ? x : std::tanh (drive * x) * norm;
+}
+
+// PolyBLEP: tar bort vikningsdistorsionen från sågens hopp.
+inline double polyBlep (double t, double dt) noexcept
+{
+    if (t < dt) { const double x = t / dt; return x + x - x * x - 1.0; }
+    if (t > 1.0 - dt) { const double x = (t - 1.0) / dt; return x * x + x + x + 1.0; }
+    return 0.0;
 }
 
 // -----------------------------------------------------------------------------
@@ -152,9 +251,22 @@ public:
         synced = false;
         expectedStep = 0.0;
         lastStep = 0;
+        holdoff = 0;
     }
 
-    // ---------------------------------------------------------------- parametrar (ljudtråden, före process)
+    void setPattern (const Pattern* pat) noexcept { pattern = pat; }
+
+    // Kicken byts bara mellan block (anropas från ljudtråden före process).
+    void setKick (const KickSample& k) noexcept
+    {
+        const bool valid = k.data != nullptr && k.length > 16 && std::isfinite (k.sampleRate)
+                        && k.sampleRate >= 8000.0 && k.sampleRate <= 384000.0;
+        if (valid && k.data == kick.data && k.length == kick.length) return;
+        kick = valid ? k : KickSample {};
+        if (kickState != KickState::Idle) startKickRelease (std::max (8, releaseSamples / 2));
+    }
+
+    // ---------------------------------------------------------------- parametrar
     void setParams (const Params& in) noexcept
     {
         const float nyq = (float) (sr * 0.45);
@@ -165,44 +277,39 @@ public:
 
         Params s;
         s.mode = in.mode == Mode::Slap ? Mode::Slap : Mode::Spikrakt;
-        s.kickStartHz = f (in.kickStartHz, 30.0f, std::min (1000.0f, nyq), 220.0f);
-        s.kickEndHz = f (in.kickEndHz, 25.0f, std::min (150.0f, nyq), 50.0f);
-        s.kickPitchMs = f (in.kickPitchMs, 2.0f, 200.0f, 18.0f);
-        s.kickLengthMs = f (in.kickLengthMs, 20.0f, 600.0f, 90.0f);
+        s.kickTune = f (in.kickTune, -12.0f, 12.0f, 0.0f);
+        s.kickLengthMs = f (in.kickLengthMs, 20.0f, 1000.0f, 85.0f);
         s.kickDrive = f (in.kickDrive, 1.0f, 8.0f, 1.0f);
-        s.kickLevel = f (in.kickLevel, 0.0f, 1.0f, 1.0f);
-        s.bassNote = f (in.bassNote, 21.0f, 60.0f, 29.0f);
+        s.kickLevel = f (in.kickLevel, 0.0f, 1.5f, 1.0f);
+        s.rootNote = std::clamp (in.rootNote, 21, 48);
+        s.scale = std::clamp (in.scale, 0, kNumScales - 1);
+        s.beats = std::clamp (in.beats, 1, kMaxBeats);
         s.bassForm = f (in.bassForm, 0.0f, 1.0f, 0.0f);
         s.bassCutoff = f (in.bassCutoff, 30.0f, std::min (8000.0f, nyq), 180.0f);
         s.bassReso = f (in.bassReso, 0.0f, 0.9f, 0.0f);
         s.bassEnv = f (in.bassEnv, 0.0f, 1.0f, 0.0f);
         s.bassEnvMs = f (in.bassEnvMs, 5.0f, 1000.0f, 60.0f);
-        s.bassDecayMs = f (in.bassDecayMs, 10.0f, 4000.0f, 90.0f);
+        s.bassDecayMs = f (in.bassDecayMs, 10.0f, 4000.0f, 120.0f);
+        s.bassGate = f (in.bassGate, 0.2f, 1.0f, 0.85f);
         s.bassDrive = f (in.bassDrive, 1.0f, 8.0f, 1.0f);
         s.bassLevel = f (in.bassLevel, 0.0f, 1.0f, 0.8f);
-        s.guillotineMs = f (in.guillotineMs, 0.2f, 5.0f, 0.7f);
+        s.releaseMs = f (in.releaseMs, 1.0f, 12.0f, 3.0f);
         s.outGain = f (in.outGain, 0.0f, 1.0f, 0.8f);
         p = s;
 
-        kickPitchCoeff = std::exp (-1.0 / (p.kickPitchMs * 0.001 * sr));
-        const double kickTau = (p.kickLengthMs * 0.001) / 6.907755278982137; // -60 dB
-        kickAmpCoeff = std::exp (-1.0 / (kickTau * sr));
-        kickLenParam = (int64_t) (p.kickLengthMs * 0.001 * sr);
         bassAmpCoeff = std::exp (-1.0 / (p.bassDecayMs * 0.001 * sr));
         bassEnvCoeff = std::exp (-1.0 / (p.bassEnvMs * 0.001 * sr));
-        bassHz = std::min ((double) nyq, midiToHz (p.bassNote));
-        bassInc = bassHz * invSr;
         svfK = 2.0 - 2.0 * p.bassReso;
         kickNorm = p.kickDrive > 1.001 ? 1.0 / std::tanh ((double) p.kickDrive) : 1.0;
         bassNorm = p.bassDrive > 1.001 ? 1.0 / std::tanh ((double) p.bassDrive) : 1.0;
-        guillotineSamples = std::max (4, (int) (p.guillotineMs * 0.001 * sr));
+        releaseSamples = std::max (16, (int) (p.releaseMs * 0.001 * sr));
+        kickLenParam = (int64_t) (p.kickLengthMs * 0.001 * sr);
+        kickRateMul = std::pow (2.0, p.kickTune / 12.0);
     }
 
     const Params& params() const noexcept { return p; }
 
     // ---------------------------------------------------------------- ljud
-    // Skriver mono till 'out'. kickOut/bassOut (valfria) får de separata signalerna
-    // före master-gain, för tester. Returnerar false om felspärren löste ut.
     bool process (float* out, int numSamples, const Transport& t,
                   float* kickOut = nullptr, float* bassOut = nullptr) noexcept
     {
@@ -213,8 +320,22 @@ public:
                      && std::isfinite (t.ppqAtStart) && t.ppqAtStart > -1.0e7 && t.ppqAtStart < 1.0e9;
         if (! ok)
         {
-            silence (out, kickOut, bassOut, 0, numSamples);
-            hardSilence();
+            // stopp: tona ut det som låter i stället för att hugga
+            if (kickState == KickState::Idle && bassState == BassState::Idle)
+            {
+                silence (out, kickOut, bassOut, 0, numSamples);
+                synced = false;
+                return true;
+            }
+            startKickRelease (releaseSamples);
+            startBassRelease (releaseSamples);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                double dummy = 0.0;
+                renderKick (dummy);
+                const double k = lastKick, b = renderBass();
+                writeSample (out, kickOut, bassOut, i, k, b, 0);
+            }
             synced = false;
             return true;
         }
@@ -224,25 +345,27 @@ public:
         const double invSps = 1.0 / sps;
         const double stepAtStart = t.ppqAtStart * 4.0;
 
-        // hopp i tidslinjen (loop, scrub): tvärstopp och synka om
-        if (synced && std::fabs (stepAtStart - expectedStep) > sps * 2.0)
+        // Riktigt hopp (loop, scrub)? Mer än en 32-del fel. Små avvikelser från värden
+        // ignoreras: klockan går bara framåt, så inget slag kan triggas två gånger.
+        if (synced && std::fabs (stepAtStart - expectedStep) > 0.5)
         {
-            hardSilence();
+            startKickRelease (releaseSamples / 2);
+            startBassRelease (releaseSamples / 2);
+            bassPending = false;
             synced = false;
+            holdoff = releaseSamples / 2 + 2;
         }
         if (! synced)
         {
             const int64_t s = (int64_t) std::floor (stepAtStart);
             const double frac = stepAtStart - (double) s;
-            lastStep = frac < sps ? s - 1 : s;   // står vi på en gräns: trigga den
+            lastStep = (frac < sps && holdoff == 0) ? s - 1 : s;
             synced = true;
         }
 
-        // kicken får aldrig vara längre än 3/4 slag (svansen behöver plats att landa på noll)
         kickLenSamples = std::min (kickLenParam, (int64_t) (0.75 * 4.0 * invSps));
-
         const bool spik = p.mode == Mode::Spikrakt;
-        const double G = (double) guillotineSamples;
+        const double R = (double) releaseSamples;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -250,21 +373,30 @@ public:
             const double stepPos = stepAtStart + (double) i * sps;
             const double stepFloor = std::floor (stepPos);
             const int64_t step = (int64_t) stepFloor;
-            const double sinceStep = (stepPos - stepFloor) * invSps;   // samples sedan gränsen, 0..1
+            const double sinceStep = (stepPos - stepFloor) * invSps;
+            const int64_t beatNo = (int64_t) std::floor (stepFloor * 0.25);
+            const int patBeat = (int) (((beatNo % p.beats) + p.beats) % p.beats);
 
-            if (step != lastStep)
+            if (holdoff > 0)
+            {
+                --holdoff;
+                lastStep = std::max (lastStep, step);
+            }
+            else if (step > lastStep)
             {
                 lastStep = step;
-                const int64_t inBeat = ((step % 4) + 4) % 4;
+                const int inBeat = (int) (((step % 4) + 4) % 4);
+                currentBeat.store (patBeat, std::memory_order_relaxed);
                 if (inBeat == 0)
                 {
                     triggerKick (sinceStep);
                     flags |= kKickStart;
+                    if (! kickPlaying()) armSlapBass (patBeat, sinceStep);
                 }
                 else if (spik)
                 {
-                    bassPending = true;
-                    pendingOffset = sinceStep;
+                    const Cell c = cellAt (patBeat, inBeat - 1);
+                    if (c.on) arm (c, sinceStep);
                 }
             }
 
@@ -272,52 +404,35 @@ public:
             const double samplesToBeat = ((std::floor (stepPos * 0.25) + 1.0) * 4.0 - stepPos) * invSps;
             const double samplesToTarget = spik ? samplesToStep : samplesToBeat;
 
-            // basen startar (kicken måste vara död, och det måste finnas plats för en hel ramp)
-            if (bassPending && kickState == KickState::Idle && bassState == BassState::Idle)
+            // basen startar när kicken är död och det finns plats för noten + releasen
+            if (bassPending && ! kickPlaying() && bassState == BassState::Idle)
             {
-                if (samplesToTarget > 2.0 * G)
+                if (samplesToTarget > 3.0 * R)
                 {
-                    startBass (pendingOffset);
+                    startBass (pendingOffset, samplesToTarget);
                     flags |= kBassStart;
                 }
                 bassPending = false;
             }
 
-            // giljotinen: rampen landar på 0 innan nästa händelse
-            if (bassState == BassState::Running && samplesToTarget <= G)
-            {
-                bassState = BassState::Guillotine;
-                bassGateLeft = std::max (1, (int) std::floor (samplesToTarget));
-                bassGateStep = bassGate / (double) bassGateLeft;
-            }
-            // samma skydd för kicken, om den mot förmodan fortfarande lever vid nästa slag
-            if (kickState != KickState::Idle && ! kickFading && samplesToBeat <= G)
-            {
-                kickFading = true;
-                kickGateLeft = std::max (1, (int) std::floor (samplesToBeat));
-                kickGateStep = kickGate / (double) kickGateLeft;
-            }
+            // sista utposten: releasen måste vara klar före nästa händelse
+            if (bassState == BassState::Running && samplesToTarget <= R + 1.0)
+                startBassRelease (std::max (1, (int) std::floor (samplesToTarget) - 1));
+            if (kickState != KickState::Idle && kickState != KickState::Release && samplesToBeat <= R + 1.0)
+                startKickRelease (std::max (1, (int) std::floor (samplesToBeat) - 1));
 
             double kickEndOffset = 0.0;
             const bool kickEnded = renderKick (kickEndOffset);
             const double k = lastKick;
 
-            if (kickEnded && (! spik || bassPending))
+            if (kickEnded)
             {
-                bassPending = true;
-                pendingOffset = kickEndOffset;   // startar nästa sample, exakt fasrätt
+                if (spik) { if (bassPending) pendingOffset = kickEndOffset; }
+                else armSlapBass (patBeat, kickEndOffset);
             }
 
             const double b = renderBass();
-
-            if (k != 0.0 && b != 0.0)
-                overlapCount.fetch_add (1, std::memory_order_relaxed);   // ska aldrig hända
-
-            gainSmooth += (p.outGain - gainSmooth) * 0.002;
-            double y = (k * p.kickLevel + b * p.bassLevel) * gainSmooth;
-
-            // felspärr: NaN/Inf nollar resten av blocket och återställer allt
-            if (! std::isfinite (y) || ! std::isfinite (k) || ! std::isfinite (b))
+            if (! writeSample (out, kickOut, bassOut, i, k, b, flags))
             {
                 silence (out, kickOut, bassOut, i, numSamples);
                 hardSilence();
@@ -325,12 +440,6 @@ public:
                 faultCount.fetch_add (1, std::memory_order_relaxed);
                 return false;
             }
-
-            y = std::min (1.0, std::max (-1.0, y));   // hårt tak, sista utposten
-            out[i] = (float) y;
-            if (kickOut) kickOut[i] = (float) k;
-            if (bassOut) bassOut[i] = (float) b;
-            scopeFifo.push ((float) (k * p.kickLevel), (float) (b * p.bassLevel), flags);
         }
 
         expectedStep = stepAtStart + (double) numSamples * sps;
@@ -340,11 +449,39 @@ public:
     ScopeFifo& scope() noexcept { return scopeFifo; }
 
     std::atomic<uint32_t> faultCount { 0 };
-    std::atomic<uint32_t> overlapCount { 0 };   // samples där båda låter. Ska alltid vara 0.
+    std::atomic<uint32_t> overlapCount { 0 };
+    std::atomic<int> currentBeat { 0 };
 
 private:
-    enum class KickState { Idle, Running, WaitZero };
-    enum class BassState { Idle, Running, Guillotine };
+    enum class KickState { Idle, Running, WaitZero, Release };
+    enum class BassState { Idle, Running, Release };
+
+    bool kickPlaying() const noexcept { return kickState != KickState::Idle; }
+
+    Cell cellAt (int beat, int slot) const noexcept
+    {
+        if (pattern == nullptr)
+        {
+            Cell c;
+            c.on = true;   // utan mönster: grundtonen på alla platser
+            return c;
+        }
+        return pattern->get (beat, slot);
+    }
+
+    void arm (const Cell& c, double offset) noexcept
+    {
+        bassPending = true;
+        pendingOffset = offset;
+        pendingCell = c;
+    }
+
+    void armSlapBass (int beat, double offset) noexcept
+    {
+        if (p.mode != Mode::Slap) return;
+        const Cell c = cellAt (beat, 0);
+        if (c.on) arm (c, offset);
+    }
 
     static void silence (float* out, float* k, float* b, int from, int to) noexcept
     {
@@ -353,13 +490,29 @@ private:
         if (b) std::fill (b + from, b + to, 0.0f);
     }
 
+    bool writeSample (float* out, float* kickOut, float* bassOut, int i, double k, double b, uint32_t flags) noexcept
+    {
+        if (k != 0.0 && b != 0.0)
+            overlapCount.fetch_add (1, std::memory_order_relaxed);   // ska aldrig hända
+
+        gainSmooth += (p.outGain - gainSmooth) * 0.002;
+        double y = (k * p.kickLevel + b * p.bassLevel) * gainSmooth;
+        if (! std::isfinite (y) || ! std::isfinite (k) || ! std::isfinite (b)) return false;
+
+        // mjuk mättning över 0 dBFS i stället för ett hårt tak
+        if (std::fabs (y) > 0.9) y = (y > 0 ? 1.0 : -1.0) * (0.9 + 0.1 * std::tanh ((std::fabs (y) - 0.9) * 10.0));
+        out[i] = (float) y;
+        if (kickOut) kickOut[i] = (float) k;
+        if (bassOut) bassOut[i] = (float) b;
+        scopeFifo.push ((float) (k * p.kickLevel), (float) (b * p.bassLevel), flags);
+        return true;
+    }
+
     void hardSilence() noexcept
     {
         kickState = KickState::Idle;
-        kickPhase = kickPitchEnv = kickAmp = lastKick = 0.0;
-        kickGate = 1.0;
-        kickFading = false;
-        kickAge = 0;
+        kickPos = lastKick = kickPrevRaw = 0.0;
+        kickAge = kickRelLeft = kickRelLen = 0;
         stopBass();
         bassPending = false;
     }
@@ -367,12 +520,12 @@ private:
     void stopBass() noexcept
     {
         bassState = BassState::Idle;
-        bassPhase = bassAmp = bassEnvV = bassGateStep = 0.0;
-        bassGate = 0.0;
+        bassPhase = bassAmp = bassEnvV = 0.0;
+        bassRelLeft = bassRelLen = 0;
         ic1 = ic2 = 0.0;
     }
 
-    // offset = hur många samples sedan den exakta starttidpunkten (0..1)
+    // ---------------------------------------------------------------- kick
     void triggerKick (double offset) noexcept
     {
         bassPending = false;
@@ -381,79 +534,118 @@ private:
             overlapCount.fetch_add (1, std::memory_order_relaxed);
             stopBass();
         }
+        if (kick.data == nullptr) { kickState = KickState::Idle; return; }
         kickState = KickState::Running;
-        kickPitchEnv = 1.0;
-        kickAmp = 1.0;
-        kickGate = 1.0;
-        kickFading = false;
+        kickRate = kick.sampleRate * invSr * kickRateMul;
+        kickPos = std::min (0.5, offset * kickRate);
         kickAge = 0;
-        kickPhase = std::min (0.25, offset * p.kickStartHz * invSr);
+        kickPrevRaw = 0.0;
+        kickRelLeft = kickRelLen = 0;
     }
 
-    void startBass (double offset) noexcept
+    void startKickRelease (int len) noexcept
     {
-        bassState = BassState::Running;
-        bassPhase = std::min (0.25, offset * bassInc);   // fas 0 ligger exakt på nollpunkten
-        bassAmp = 1.0;
-        bassEnvV = 1.0;
-        bassGate = 1.0;
-        bassGateStep = 0.0;
-        ic1 = ic2 = 0.0;
+        if (kickState == KickState::Idle) return;
+        len = std::max (1, len);
+        if (kickState == KickState::Release && kickRelLeft <= len) return;
+        kickState = KickState::Release;
+        kickRelLen = kickRelLeft = len;
     }
 
-    // Returnerar true när kicken dog i detta sample. endOffset = hur långt efter
-    // nollgenomgången nästa sample ligger (0..1 sample).
+    // Returnerar true när kicken stängdes på en nollgenomgång i detta sample.
+    // endOffset = hur långt efter nollgenomgången nästa sample ligger (0..1).
     bool renderKick (double& endOffset) noexcept
     {
         lastKick = 0.0;
         if (kickState == KickState::Idle) return false;
 
-        lastKick = shape (std::sin (kTwoPi * kickPhase), p.kickDrive, kickNorm) * kickAmp * kickGate;
-
-        const double hz = p.kickEndHz + (p.kickStartHz - p.kickEndHz) * kickPitchEnv;
-        const double inc = hz * invSr;
-        kickPhase += inc;
-        kickPitchEnv *= kickPitchCoeff;
-        kickAmp *= kickAmpCoeff;
-
-        if (kickFading)
+        if (kick.data == nullptr || kickPos >= (double) (kick.length - 1))
         {
-            kickGate -= kickGateStep;
-            if (--kickGateLeft <= 0)
-            {
-                kickState = KickState::Idle;
-                kickPhase = kickAmp = 0.0;
-                return false;   // nödstängd, ingen bas efter den
-            }
+            kickState = KickState::Idle;   // samplet slut (laddaren tonar ut svansen)
+            endOffset = 0.0;
+            return true;
         }
 
-        if (kickPhase >= 1.0)
+        const int i0 = (int) kickPos;
+        const double fr = kickPos - (double) i0;
+        const double raw = kick.data[i0] + (kick.data[i0 + 1] - kick.data[i0]) * fr;
+
+        if (kickState == KickState::WaitZero && kickPrevRaw <= 0.0 && raw > 0.0)
         {
-            kickPhase -= 1.0;
-            if (kickState == KickState::WaitZero)
+            // nollgenomgång uppåt mellan förra samplet och detta: stäng här
+            const double x = kickPrevRaw / (kickPrevRaw - raw);   // 0..1 sedan förra samplet
+            endOffset = std::clamp (1.0 - x, 0.0, 1.0);
+            kickState = KickState::Idle;
+            return true;
+        }
+
+        double g = 1.0;
+        if (kickState == KickState::Release)
+        {
+            g = 0.5 * (1.0 + std::cos (kPi * (double) (kickRelLen - kickRelLeft) / (double) kickRelLen));
+            if (--kickRelLeft <= 0)
             {
-                endOffset = std::min (1.0, kickPhase / inc);
                 kickState = KickState::Idle;
-                kickPhase = kickAmp = 0.0;
+                endOffset = 0.0;
                 return true;
             }
         }
 
-        if (kickState == KickState::Running && ++kickAge >= kickLenSamples)
+        lastKick = shape (raw, p.kickDrive, kickNorm) * g;
+        kickPrevRaw = raw;
+        kickPos += kickRate;
+        ++kickAge;
+
+        if (kickState == KickState::Running && kickAge >= kickLenSamples)
             kickState = KickState::WaitZero;
+        // väntar den för länge (sample med DC eller tystnad): tona ut i stället
+        if (kickState == KickState::WaitZero && kickAge >= kickLenSamples + (int64_t) (0.03 * sr))
+            startKickRelease (releaseSamples);
         return false;
+    }
+
+    // ---------------------------------------------------------------- bas
+    void startBass (double offset, double samplesToTarget) noexcept
+    {
+        const Cell c = pendingCell;
+        const int semis = degreeToSemis (p.scale, c.degree) + 12 * c.oct;
+        const double note = std::clamp ((double) (p.rootNote + semis), 12.0, 84.0);
+        bassHz = std::min (sr * 0.45, midiToHz (note));
+        bassInc = bassHz * invSr;
+
+        bassState = BassState::Running;
+        bassPhase = std::min (0.25, offset * bassInc);   // fas 0 ligger exakt på nollpunkten
+        bassAmp = 0.35 + 0.65 * (double) c.vel / 127.0;
+        bassEnvV = 1.0;
+        ic1 = ic2 = 0.0;
+
+        // notlängd: andel av platsen fram till nästa händelse, minus releasen
+        const double room = std::max (0.0, samplesToTarget - (double) releaseSamples - 1.0);
+        bassGateLeft = (int64_t) std::max (1.0, room * p.bassGate);
+        bassRelLeft = bassRelLen = 0;
+    }
+
+    void startBassRelease (int len) noexcept
+    {
+        if (bassState == BassState::Idle) return;
+        len = std::max (1, len);
+        if (bassState == BassState::Release && bassRelLeft <= len) return;
+        bassState = BassState::Release;
+        bassRelLen = bassRelLeft = len;
     }
 
     double renderBass() noexcept
     {
         if (bassState == BassState::Idle) return 0.0;
 
-        // oscillator: sinus -> såg. Sågen startar också på 0 och går uppåt.
+        // sinus -> bandbegränsad såg. Båda börjar på 0 och går uppåt.
         const double ph = bassPhase;
-        const double saw = ph < 0.5 ? 2.0 * ph : 2.0 * ph - 2.0;
+        double psi = ph + 0.5;
+        if (psi >= 1.0) psi -= 1.0;
+        const double saw = (2.0 * psi - 1.0) - polyBlep (psi, bassInc);
         const double osc = (1.0 - p.bassForm) * std::sin (kTwoPi * ph) + p.bassForm * saw;
 
-        // TPT-tillståndsfilter, lågpass. Nollställs vid varje start: utgången börjar på 0.
+        // TPT-tillståndsfilter (lågpass), nollställt vid varje start
         const double fc = std::min (sr * 0.45, (double) p.bassCutoff * std::exp2 (5.0 * p.bassEnv * bassEnvV));
         const double g = std::tan (kPi * fc * invSr);
         const double a1 = 1.0 / (1.0 + g * (g + svfK));
@@ -465,7 +657,11 @@ private:
         ic1 = 2.0 * v1 - ic1;
         ic2 = 2.0 * v2 - ic2;
 
-        const double y = shape (v2, p.bassDrive, bassNorm) * bassAmp * bassGate;
+        double rel = 1.0;
+        if (bassState == BassState::Release)
+            rel = 0.5 * (1.0 + std::cos (kPi * (double) (bassRelLen - bassRelLeft) / (double) bassRelLen));
+
+        const double y = shape (v2, p.bassDrive, bassNorm) * bassAmp * rel;
 
         bassPhase += bassInc;
         if (bassPhase >= 1.0) bassPhase -= 1.0;
@@ -479,14 +675,13 @@ private:
             return 0.0;
         }
 
-        if (bassState == BassState::Guillotine)
+        if (bassState == BassState::Release)
         {
-            bassGate -= bassGateStep;
-            if (--bassGateLeft <= 0) stopBass();   // heltalsräknare: landar exakt, inga flyttalsrester
+            if (--bassRelLeft <= 0) stopBass();
         }
-        else if (bassAmp < 1.0e-5)
+        else if (--bassGateLeft <= 0 || bassAmp < 1.0e-4)
         {
-            stopBass();   // helt utklingad: inget att hugga av
+            startBassRelease (releaseSamples);
         }
         return y;
     }
@@ -497,30 +692,34 @@ private:
 
     // parametrar
     Params p {};
-    double kickPitchCoeff = 0.0, kickAmpCoeff = 0.0, bassAmpCoeff = 0.0, bassEnvCoeff = 0.0;
-    double bassHz = 43.65, bassInc = 0.0, svfK = 2.0, kickNorm = 1.0, bassNorm = 1.0;
+    double bassAmpCoeff = 0.0, bassEnvCoeff = 0.0, svfK = 2.0, kickNorm = 1.0, bassNorm = 1.0;
+    double kickRateMul = 1.0;
     int64_t kickLenParam = 0, kickLenSamples = 0;
-    int guillotineSamples = 32;
+    int releaseSamples = 144;
     double gainSmooth = 0.0;
+    const Pattern* pattern = nullptr;
+    KickSample kick {};
 
     // klocka
     bool synced = false;
     double expectedStep = 0.0;
     int64_t lastStep = 0;
+    int holdoff = 0;
 
     // kick
     KickState kickState = KickState::Idle;
-    double kickPhase = 0.0, kickPitchEnv = 0.0, kickAmp = 0.0, kickGate = 1.0, kickGateStep = 0.0, lastKick = 0.0;
-    bool kickFading = false;
-    int kickGateLeft = 0;
+    double kickPos = 0.0, kickRate = 1.0, lastKick = 0.0, kickPrevRaw = 0.0;
     int64_t kickAge = 0;
+    int kickRelLeft = 0, kickRelLen = 0;
 
     // bas
     BassState bassState = BassState::Idle;
     bool bassPending = false;
     double pendingOffset = 0.0;
-    double bassPhase = 0.0, bassAmp = 0.0, bassEnvV = 0.0, bassGate = 0.0, bassGateStep = 0.0;
-    int bassGateLeft = 0;
+    Cell pendingCell {};
+    double bassPhase = 0.0, bassAmp = 0.0, bassEnvV = 0.0, bassHz = 43.65, bassInc = 0.001;
+    int64_t bassGateLeft = 0;
+    int bassRelLeft = 0, bassRelLen = 0;
     double ic1 = 0.0, ic2 = 0.0;
 
     ScopeFifo scopeFifo;

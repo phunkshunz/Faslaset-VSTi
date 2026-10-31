@@ -1,0 +1,3 @@
+# Kickarna får aldrig normaliseras eller ändras av git.
+*.flac binary
+*.command text eol=lf

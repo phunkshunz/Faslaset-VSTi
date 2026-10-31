@@ -10,10 +10,10 @@
 
 <section class="cover">
   <div class="stripe"></div>
-  <div class="kicker">PHUNKSHUNZ AUDIO · USER MANUAL · VERSION 1.0</div>
+  <div class="kicker">PHUNKSHUNZ AUDIO · USER MANUAL · VERSION 2.0</div>
   <h1>FASLÅSET</h1>
-  <div class="what">PHASE-LOCKED KICK + BASS ENGINE · ZERO OVERLAP</div>
-  <p class="tag">Stop zooming in on waveforms. FASLÅSET (Swedish for “the phase lock”) builds the kick and the bass in the same machine, so the bass always starts at phase zero exactly where the kick ends. No overlap. No cancellation. Every time.</p>
+  <div class="what">PHASE-LOCKED KICK + BASSLINE ENGINE · ZERO OVERLAP</div>
+  <p class="tag">Stop zooming in on waveforms. FASLÅSET (Swedish for “the phase lock”) plays a sampled kick and a generated bassline in the same machine, so every bass note starts at phase zero exactly where the kick ends. No overlap. No cancellation. No clicks.</p>
   <div class="foot">
     <div>VST3 · AU · STANDALONE<br>MACOS · WINDOWS (VST3)</div>
     <b>PHUNKSHUNZ <span>AUDIO</span></b>
@@ -27,20 +27,21 @@
   <li><span>03</span>Your first minute</li>
   <li><span>04</span>How the phase lock works</li>
   <li><span>05</span>The two modes</li>
-  <li><span>06</span>Every knob</li>
-  <li><span>07</span>The oscilloscope</li>
-  <li><span>08</span>Presets and dice</li>
-  <li><span>09</span>Troubleshooting</li>
+  <li><span>06</span>The bassline</li>
+  <li><span>07</span>Every knob</li>
+  <li><span>08</span>The oscilloscope</li>
+  <li><span>09</span>Presets</li>
+  <li><span>10</span>Troubleshooting</li>
 </ol>
 
 <h2><span class="n">01</span>Welcome</h2>
 <p class="lead">In psytrance and heavy techno, the kick and the bass fight over the same 40 to 60 Hz. When they overlap, they cancel each other out and the low end turns to mush.</p>
 <p>The usual fix is sidechain compression: duck the bass when the kick hits. It works, but it is a patch. The bass still starts at a random point of its waveform, and the kick still has a tail under it.</p>
-<p>FASLÅSET solves it at the source. It is one instrument that plays both the <span class="kc">kick</span> and the <span class="bc">bass</span>, locked to your DAW's tempo with sample accuracy:</p>
+<p>FASLÅSET solves it at the source. It is one instrument that plays both the <span class="kc">kick</span> (29 sampled kicks from BETONG) and a <span class="bc">bassline</span> (1 to 8 beats, built from a scale), locked to your DAW's tempo with sample accuracy:</p>
 <ul>
   <li>The <span class="kc">kick</span> only stops when its waveform crosses zero.</li>
   <li>The <span class="bc">bass</span> starts at phase zero exactly on that crossing, down to a fraction of a sample.</li>
-  <li>Before the next kick, the bass is cut by a <strong>guillotine</strong>: a short ramp that lands on exactly zero.</li>
+  <li>Every bass note fades out with a soft cosine release that lands on exactly zero before the next event. No hard cuts, no clicks.</li>
 </ul>
 <img class="shot" src="faslaset.png" alt="FASLÅSET">
 
@@ -50,12 +51,14 @@
     <thead><tr><th>On screen</th><th>English</th><th>On screen</th><th>English</th></tr></thead>
     <tbody>
       <tr><td><span class="k">SPIKRAKT</span></td><td>Dead straight (psy mode)</td><td><span class="k">SLÄP</span></td><td>Drag (techno mode)</td></tr>
-      <tr><td><span class="k">SLUT</span></td><td>End (pitch)</td><td><span class="k">SVEP</span></td><td>Sweep</td></tr>
-      <tr><td><span class="k">LÄNGD</span></td><td>Length</td><td><span class="k">DRIV</span></td><td>Drive</td></tr>
-      <tr><td><span class="k">NIVÅ</span></td><td>Level</td><td><span class="k">TON</span></td><td>Note</td></tr>
+      <tr><td><span class="k">BASGÅNG</span></td><td>Bassline</td><td><span class="k">SLAG</span></td><td>Beats (pattern length)</td></tr>
+      <tr><td><span class="k">GRUNDTON</span></td><td>Root note (key)</td><td><span class="k">SKALA</span></td><td>Scale</td></tr>
+      <tr><td><span class="k">STIL</span></td><td>Style (for the dice)</td><td><span class="k">TONER / RYTM / KLANG</span></td><td>Notes / Rhythm / Tone</td></tr>
+      <tr><td><span class="k">STÄMNING</span></td><td>Tuning</td><td><span class="k">LÄNGD</span></td><td>Length</td></tr>
+      <tr><td><span class="k">DRIV</span></td><td>Drive</td><td><span class="k">NIVÅ</span></td><td>Level</td></tr>
       <tr><td><span class="k">FORM</span></td><td>Waveshape</td><td><span class="k">BETT</span></td><td>Bite (saturation)</td></tr>
-      <tr><td><span class="k">ENV TID</span></td><td>Envelope time</td><td><span class="k">GILJOTIN</span></td><td>Guillotine</td></tr>
-      <tr><td><span class="k">VOLYM</span></td><td>Volume</td><td><span class="k">SPELA</span></td><td>Play</td></tr>
+      <tr><td><span class="k">ENV TID</span></td><td>Envelope time</td><td><span class="k">UTKLING</span></td><td>Release (fade-out)</td></tr>
+      <tr><td><span class="k">ÅNGRA</span></td><td>Undo</td><td><span class="k">SPELA</span></td><td>Play</td></tr>
       <tr><td><span class="k">NOLL FASFEL</span></td><td>Zero phase errors</td><td><span class="k">SPÄRR</span></td><td>Safety lock</td></tr>
     </tbody>
   </table>
@@ -76,8 +79,8 @@
   <li>Put FASLÅSET on an instrument track and press play in your DAW. No DAW? Press <span class="k">SPELA</span> and set <span class="k">TEMPO</span>.</li>
   <li>Browse presets with the arrows, or click the name for the full list.</li>
   <li>Choose <span class="k o">SPIKRAKT</span> for psy or <span class="k">SLÄP</span> for techno.</li>
-  <li>Set <span class="k">TON</span> to the key of your track.</li>
-  <li>Roll the dice on the kick or the bass until something sticks. <span class="k">DICE</span> rolls both.</li>
+  <li>Set <span class="k">GRUNDTON</span> and <span class="k">SKALA</span> to the key of your track.</li>
+  <li>Roll the bass dice until a bassline sticks. <span class="k">TONER</span> keeps the rhythm and changes the notes, <span class="k">RYTM</span> does the opposite. <span class="k">DICE</span> rolls everything. <span class="k">ÅNGRA</span> takes you back.</li>
   <li>Watch the oscilloscope. Green and pink never touch.</li>
 </ol>
 
@@ -86,45 +89,73 @@
 <h3>1. The clock</h3>
 <p>At the start of every audio block FASLÅSET reads the tempo and the song position from your DAW and works out exactly which sample every 16th note lands on. It recalculates from the DAW's position every block, so it never drifts. If you loop or jump in the timeline, it stops cleanly and locks on again.</p>
 <h3>2. The kick closes on zero</h3>
-<p>When the kick has played for its <span class="k">LÄNGD</span>, it does not just stop. It waits for its waveform to cross zero going upwards, and stops there. Like closing a valve only when the pressure has equalised.</p>
+<p>The kicks are the 29 sampled kicks from BETONG. When they load, DC offset is removed, the level is matched and the tail is faded, so every waveform really crosses zero. When the kick has played for its <span class="k">LÄNGD</span>, it does not just stop. It waits for the waveform to cross zero going upwards, and stops there. Like closing a valve only when the pressure has equalised.</p>
 <h3>3. The bass starts on phase zero</h3>
 <p>The bass oscillator starts at phase zero exactly on that crossing. The crossing usually falls between two samples, so FASLÅSET calculates where it really is and offsets the bass by that fraction. The result is a waveform that continues smoothly from kick to bass, with nothing underneath.</p>
-<h3>4. The guillotine</h3>
-<p>Before the next event, the bass is ramped down over <span class="k">GILJOTIN</span> milliseconds (0.7 ms by default). The ramp is calculated so that it hits exactly zero on the sample before the next event. Short enough to sound like a hard cut, long enough to never click.</p>
-<h3>5. Safety locks</h3>
-<p>Every value that comes in is checked and clamped. If anything ever produced an invalid number, the block is muted, the engine resets and the <span class="k">SPÄRR</span> counter goes up. The output also has a hard ceiling at 0 dBFS. In normal use none of this ever triggers.</p>
+<h3>4. The soft release</h3>
+<p>Every bass note ends with a cosine fade over <span class="k">UTKLING</span> milliseconds (3 ms by default). It starts when the note's <span class="k">LÄNGD</span> runs out, and at the latest so early that it lands on exactly zero before the next event. Short enough to sound tight, smooth enough to never click.</p>
+<h3>5. A steady clock</h3>
+<p>Some DAWs report a song position that wobbles by a sample or two between blocks. FASLÅSET's clock only moves forward, so a wobble can never trigger the same beat twice. Only a real jump (a loop or a scrub) makes it lock on again, and then everything fades out softly first.</p>
+<h3>6. Safety locks</h3>
+<p>Every value that comes in is checked and clamped. If anything ever produced an invalid number, the block is muted, the engine resets and the <span class="k">SPÄRR</span> counter goes up. The output also has a soft ceiling just below 0 dBFS. In normal use none of this ever triggers.</p>
 
 <h2><span class="n">05</span>The two modes</h2>
 <table>
   <thead><tr><th>Mode</th><th>What it does</th></tr></thead>
   <tbody>
-    <tr><td><span class="k o">SPIKRAKT</span></td><td><strong>Psytrance.</strong> Kick on the beat, bass on the three following 16th notes (K-B-B-B). Every bass note starts at phase zero and is cut before the next 16th. If the kick is long, the first bass note waits for the kick's zero crossing.</td></tr>
-    <tr><td><span class="k">SLÄP</span></td><td><strong>Techno.</strong> One long sub per beat that starts on the kick's zero crossing and rolls deep behind it, until the guillotine cuts it before the next kick.</td></tr>
+    <tr><td><span class="k o">SPIKRAKT</span></td><td><strong>Psytrance.</strong> Kick on the beat, bass notes on the three following 16th notes (K-B-B-B), as the bassline grid says. Every note starts at phase zero and fades out before the next 16th. If the kick is long, the first bass note waits for the kick's zero crossing.</td></tr>
+    <tr><td><span class="k">SLÄP</span></td><td><strong>Techno.</strong> One long note per beat (the top row of the grid) that starts on the kick's zero crossing and rolls deep behind it, until it fades out before the next kick.</td></tr>
   </tbody>
 </table>
 
-<h2 class="page"><span class="n">06</span>Every knob</h2>
+<h2 class="page"><span class="n">06</span>The bassline</h2>
+<p>The grid shows up to 8 beats (<span class="k">K1</span> to <span class="k">K8</span>, one kick each) with three bass notes per beat: the 2nd, 3rd and 4th 16th note after the kick. <span class="k">SLAG</span> sets how many beats the pattern has before it repeats, from 1 to 8.</p>
+<table>
+  <thead><tr><th>Do this</th><th>To get</th></tr></thead>
+  <tbody>
+    <tr><td>Click a cell</td><td>Note on or off.</td></tr>
+    <tr><td>Drag up or down (or scroll)</td><td>Move the note up or down the scale.</td></tr>
+    <tr><td>Double-click</td><td>Back to the root note.</td></tr>
+    <tr><td>Right-click</td><td>Octave down or up, and accent (weak, medium, strong).</td></tr>
+  </tbody>
+</table>
+<p>Notes are written as scale steps, so if you change <span class="k">GRUNDTON</span> or <span class="k">SKALA</span> the whole bassline follows into the new key.</p>
+<h3>The bass dice</h3>
+<p>The dice never spits out random notes. It builds a bassline the way a producer would: a short motif that is mostly the root note, repeated over the pattern, with movement where a phrase needs it (the last beat always, the middle beat sometimes). The notes it moves to are weighted towards the octave, the fifth, the third and, in the Phrygian scales, the flat second that gives psy its tension. At least half the notes are always the root.</p>
+<table>
+  <thead><tr><th>Style</th><th>Feel</th></tr></thead>
+  <tbody>
+    <tr><td><span class="k">RULL</span></td><td>Classic rolling psy: all three 16ths.</td></tr>
+    <tr><td><span class="k">GALOPP</span></td><td>Bouncing: two notes and a rest.</td></tr>
+    <tr><td><span class="k">GLES</span></td><td>Sparse, more air. Progressive.</td></tr>
+    <tr><td><span class="k">VILD</span></td><td>More jumps, more octaves, more movement.</td></tr>
+  </tbody>
+</table>
+<p>The dice in the bassline panel makes a new bassline. <span class="k">TONER</span> keeps the rhythm and changes the notes. <span class="k">RYTM</span> keeps the notes and changes the rhythm. <span class="k">KLANG</span> rolls the bass sound (form, filter, bite). Every roll can be undone with <span class="k">ÅNGRA</span> (up to 40 steps).</p>
+
+<h2 class="page"><span class="n">07</span>Every knob</h2>
 <h3>Kick</h3>
 <table>
   <tbody>
-    <tr><td><span class="k">START</span></td><td>Pitch at the start of the kick (the click and punch).</td></tr>
-    <tr><td><span class="k">SLUT</span></td><td>Pitch the kick ends on (the body).</td></tr>
-    <tr><td><span class="k">SVEP</span></td><td>How fast the pitch falls from START to SLUT.</td></tr>
-    <tr><td><span class="k">LÄNGD</span></td><td>Time until the kick has faded to −60 dB. After that it closes on the next zero crossing. In SPIKRAKT, keep it shorter than a 16th note for the tightest groove.</td></tr>
-    <tr><td><span class="k">DRIV</span></td><td>Saturation. Keeps zero crossings in place, so the lock still holds.</td></tr>
-    <tr><td><span class="k">NIVÅ</span></td><td>Kick level.</td></tr>
+    <tr><td><span class="k">SAMPLE</span></td><td>One of the 29 kicks from BETONG.</td></tr>
+    <tr><td><span class="k">STÄMNING</span></td><td>Tune the kick ±12 semitones.</td></tr>
+    <tr><td><span class="k">LÄNGD</span></td><td>How long the kick plays. After that it closes on the next zero crossing. In SPIKRAKT, keep it shorter than a 16th note for the tightest groove.</td></tr>
+    <tr><td><span class="k">DRIV</span></td><td>Saturation for a fatter kick. Keeps zero crossings in place, so the lock still holds.</td></tr>
+    <tr><td><span class="k">NIVÅ</span></td><td>Kick level (up to 150 %).</td></tr>
   </tbody>
 </table>
-<h3>Bass</h3>
+<h3>Bassline</h3>
 <table>
   <tbody>
-    <tr><td><span class="k">TON</span></td><td>The bass note (A0 to E3). F1 = 43.65 Hz.</td></tr>
-    <tr><td><span class="k">FORM</span></td><td>From sine to saw. Both start at zero going upwards.</td></tr>
-    <tr><td><span class="k">FILTER</span></td><td>Low-pass cutoff.</td></tr>
-    <tr><td><span class="k">RESO</span></td><td>Filter resonance.</td></tr>
-    <tr><td><span class="k">ENV</span></td><td>How far the filter opens at the start of each note (up to five octaves). This is the psy pluck.</td></tr>
-    <tr><td><span class="k">ENV TID</span></td><td>How fast the filter closes again.</td></tr>
-    <tr><td><span class="k">DECAY</span></td><td>How fast the volume of each note fades.</td></tr>
+    <tr><td><span class="k">GRUNDTON</span></td><td>The key (A0 to C3). F1 = 43.65 Hz.</td></tr>
+    <tr><td><span class="k">SLAG</span></td><td>Pattern length, 1 to 8 beats.</td></tr>
+    <tr><td><span class="k">SKALA</span></td><td>Phrygian, minor, harmonic minor, Phrygian dominant, Dorian or minor pentatonic.</td></tr>
+    <tr><td><span class="k">STIL</span></td><td>How the dice builds the bassline (see above).</td></tr>
+    <tr><td><span class="k">FORM</span></td><td>From sine to saw (band-limited, no aliasing). Both start at zero going upwards.</td></tr>
+    <tr><td><span class="k">FILTER</span> · <span class="k">RESO</span></td><td>Low-pass cutoff and resonance.</td></tr>
+    <tr><td><span class="k">ENV</span> · <span class="k">ENV TID</span></td><td>How far the filter opens at the start of each note, and how fast it closes. This is the psy pluck.</td></tr>
+    <tr><td><span class="k">DECAY</span></td><td>How fast each note's volume falls.</td></tr>
+    <tr><td><span class="k">LÄNGD</span></td><td>Note length, as a share of the space until the next event.</td></tr>
     <tr><td><span class="k">BETT</span></td><td>Saturation. Also keeps zero crossings in place.</td></tr>
     <tr><td><span class="k">NIVÅ</span></td><td>Bass level.</td></tr>
   </tbody>
@@ -132,22 +163,22 @@
 <h3>Master and top bar</h3>
 <table>
   <tbody>
-    <tr><td><span class="k">GILJOTIN</span></td><td>Length of the cut ramp, 0.2 to 5 ms.</td></tr>
+    <tr><td><span class="k">UTKLING</span></td><td>Length of the soft release at the end of every bass note, 1 to 12 ms.</td></tr>
     <tr><td><span class="k">VOLYM</span></td><td>Output level.</td></tr>
-    <tr><td><span class="k">SPELA</span></td><td>Own clock when the DAW is stopped, or in the standalone app.</td></tr>
-    <tr><td><span class="k">TEMPO</span></td><td>Tempo for the own clock. Ignored while the DAW plays.</td></tr>
+    <tr><td><span class="k">DICE</span></td><td>Rolls everything: kick, key, scale, style, length, sound and bassline.</td></tr>
+    <tr><td><span class="k">ÅNGRA</span></td><td>Undo the last roll or edit.</td></tr>
+    <tr><td><span class="k">SPELA</span> · <span class="k">TEMPO</span></td><td>Own clock when the DAW is stopped, or in the standalone app.</td></tr>
   </tbody>
 </table>
 
-<h2><span class="n">07</span>The oscilloscope</h2>
+<h2><span class="n">08</span>The oscilloscope</h2>
 <p>The scope shows one beat at a time, triggered by the kick, so the picture stands still. The <span class="kc">kick</span> is acid green, the <span class="bc">bass</span> is magenta, and a cyan marker shows each point where the bass started at phase zero.</p>
 <p>The badge above it reads <span class="k">NOLL FASFEL</span> (zero phase errors) as long as kick and bass have never sounded on the same sample. It counts every sample, all the time.</p>
 
-<h2 class="page"><span class="n">08</span>Presets and dice</h2>
-<p>Twelve presets: eight psy (full-on, morning, progressive, goa, dark, forest, hi-tech, swamp) and four techno (tunnel, industrial, sub pressure, concrete roll).</p>
-<p>The <strong>dice</strong> in the KICK and BAS panels roll only that section. <span class="k">DICE</span> in the top bar rolls both. The mode, the levels and the master settings are left alone. In SPIKRAKT, the kick dice always keeps the kick shorter than a 16th note at the current tempo.</p>
+<h2><span class="n">09</span>Presets</h2>
+<p>Fourteen presets: ten psy (full-on, morning, progressive, goa, dark, forest, hi-tech, swamp, gallop, octave jumps) and four techno (tunnel, industrial, bunker, Berlin). Each preset has its own fixed bassline, so it always comes back the same.</p>
 
-<h2><span class="n">09</span>Troubleshooting</h2>
+<h2><span class="n">10</span>Troubleshooting</h2>
 <ul>
   <li><strong>No sound:</strong> is the DAW playing? FASLÅSET only plays while the transport runs. Without a DAW, press <span class="k">SPELA</span>.</li>
   <li><strong>macOS says the plugin is damaged:</strong> run <span class="k">installera.command</span> again. It removes the quarantine flag.</li>

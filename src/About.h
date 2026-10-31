@@ -3,7 +3,7 @@
 #include "Gui.h"
 
 #ifndef JucePlugin_VersionString
- #define JucePlugin_VersionString "1.0.0"
+ #define JucePlugin_VersionString "2.0.0"
 #endif
 
 // Om-sidan som öppnas när man klickar på loggan. Klick var som helst stänger.
@@ -48,12 +48,12 @@ public:
         auto add = [&] (const char* s, juce::Colour c) { body.append (juce::String::fromUTF8 (s), c == text ? bodyFont : boldFont, c); };
         add ("Kick och bas som krockar är den vanligaste orsaken till en grötig botten. Sidechain är silvertejp. ", text);
         add ("FASLÅSET", sodium);
-        add (" bygger dem i samma maskin: ", text);
+        add (" spelar dem i samma maskin: ", text);
         add ("kicken", kick);
-        add (" stängs först när dess svängning passerar noll, och ", text);
-        add ("basen", bass);
+        add (" (BETONG:s samplade kickar) stängs först när vågformen passerar noll, och varje ", text);
+        add ("basnot", bass);
         add (" startar med fas noll på exakt den punkten, ner på bråkdelen av ett sample. "
-             "Innan nästa slag huggs basen av med en giljotin som landar på exakt noll.\n\n"
+             "Före nästa slag tonar basen ut mjukt till exakt noll.\n\n"
              "Ingen överlappning. Ingen utsläckning. Det du ser i oscilloskopet är det som kommer ut ur högtalarna.", text);
         juce::TextLayout layout;
         layout.createLayout (body, (float) r.getWidth());

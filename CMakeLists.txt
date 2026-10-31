@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(FASLASET VERSION 1.0.0)
+project(FASLASET VERSION 2.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,10 @@ else()
         GIT_SHALLOW ON)
     FetchContent_MakeAvailable(JUCE)
 endif()
+
+# BETONG:s 29 kickar (24-bit FLAC) byggs in i pluginet
+file(GLOB FASLASET_KICKS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/kicks/*.flac)
+juce_add_binary_data(FaslasetData SOURCES ${FASLASET_KICKS})
 
 # FASLÅSET gör eget ljud (kick + bas) och följer DAW:ens tempo. MIDI behövs inte.
 juce_add_plugin(Faslaset
@@ -49,6 +53,7 @@ target_compile_definitions(Faslaset
 
 target_link_libraries(Faslaset
     PRIVATE
+        FaslasetData
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags
@@ -73,5 +78,5 @@ if(FASLASET_TESTS)
     target_sources(FaslasetTest PRIVATE tests/plugin_test.cpp src/PluginProcessor.cpp src/PluginEditor.cpp)
     target_compile_definitions(FaslasetTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_ALSA=0 JUCE_JACK=0
         JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0 JUCE_USE_XRENDER=0 JUCE_USE_XSHM=0 JUCE_MODAL_LOOPS_PERMITTED=1)
-    target_link_libraries(FaslasetTest PRIVATE juce::juce_audio_utils PUBLIC juce::juce_recommended_config_flags)
+    target_link_libraries(FaslasetTest PRIVATE FaslasetData juce::juce_audio_utils PUBLIC juce::juce_recommended_config_flags)
 endif()
