@@ -1,0 +1,135 @@
+name: Bygg FASLASET
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # behövs för att skapa releaser
+
+jobs:
+  # Manualen görs till PDF av Chrome och läggs i zipparna.
+  manual:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gör PDF-manualen
+        run: |
+          mkdir -p dist
+          google-chrome --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer \
+            --virtual-time-budget=20000 --run-all-compositor-stages-before-draw \
+            --print-to-pdf="$PWD/dist/FASLASET-Manual.pdf" "file://$PWD/manual/manual.html"
+          test -s dist/FASLASET-Manual.pdf
+
+      - name: Testa motorn
+        run: |
+          g++ -std=c++17 -O2 -Isrc tests/engine_test.cpp -o engine_test
+          ./engine_test
+
+      - name: Ladda upp
+        uses: actions/upload-artifact@v4
+        with:
+          name: FASLASET-Manual
+          path: dist/FASLASET-Manual.pdf
+
+  macos:
+    needs: manual
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfigurera
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Bygg
+        run: cmake --build build --config Release -j 3
+
+      - name: Hämta manualen
+        uses: actions/download-artifact@v4
+        with:
+          name: FASLASET-Manual
+          path: dist/FASLASET
+
+      - name: Paketera
+        run: |
+          ART=build/Faslaset_artefacts/Release
+          mkdir -p dist/FASLASET
+          cp -R "$ART/VST3/FASLASET.vst3" dist/FASLASET/
+          cp -R "$ART/AU/FASLASET.component" dist/FASLASET/
+          cp -R "$ART/Standalone/FASLASET.app" dist/FASLASET/
+          cp scripts/installera.command dist/FASLASET/
+          chmod +x dist/FASLASET/installera.command
+          for b in dist/FASLASET/FASLASET.vst3 dist/FASLASET/FASLASET.component dist/FASLASET/FASLASET.app; do
+            codesign --force --deep --sign - "$b"
+          done
+          cd dist && ditto -c -k --keepParent FASLASET FASLASET-macOS.zip
+
+      - name: Ladda upp
+        uses: actions/upload-artifact@v4
+        with:
+          name: FASLASET-macOS
+          path: dist/FASLASET-macOS.zip
+
+  windows:
+    needs: manual
+    runs-on: windows-2022
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfigurera
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Bygg
+        run: cmake --build build --config Release --target Faslaset_VST3 -j 3
+
+      - name: Hämta manualen
+        uses: actions/download-artifact@v4
+        with:
+          name: FASLASET-Manual
+          path: dist/FASLASET
+
+      - name: Paketera
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse "build/Faslaset_artefacts/Release/VST3/FASLASET.vst3" "dist/FASLASET/"
+          Compress-Archive -Path "dist/FASLASET" -DestinationPath "dist/FASLASET-Windows.zip"
+
+      - name: Ladda upp
+        uses: actions/upload-artifact@v4
+        with:
+          name: FASLASET-Windows
+          path: dist/FASLASET-Windows.zip
+
+  # Varje bygge på main blir en release, så att
+  # .../releases/latest/download/FASLASET-macOS.zip alltid ger senaste versionen.
+  release:
+    if: always() && github.event_name == 'push' && needs.macos.result == 'success'
+    needs: [manual, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Skapa release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('faslaset-bygge-{0}', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('FASLÅSET bygge {0}', github.run_number) }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body: "Mac: ladda ner FASLASET-macOS.zip och installera enligt README. Windows: FASLASET-Windows.zip (VST3). Manualen ligger i zipparna och som PDF här."
+          files: |
+            dist/FASLASET-macOS.zip
+            dist/FASLASET-Windows.zip
+            dist/FASLASET-Manual.pdf
