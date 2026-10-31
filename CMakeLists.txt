@@ -23,6 +23,11 @@ file(GLOB FASLASET_KICKS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/ki
 juce_add_binary_data(FaslasetData SOURCES ${FASLASET_KICKS})
 
 # FASLÅSET gör eget ljud (kick + bas) och följer DAW:ens tempo. MIDI behövs inte.
+# Linux: bygg även LV2
+set(PHZ_EXTRA_FORMATS "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(PHZ_EXTRA_FORMATS LV2)
+endif()
 juce_add_plugin(Faslaset
     COMPANY_NAME "Phunkshunz AUDIO"
     PRODUCT_NAME "FASLASET"
@@ -37,7 +42,8 @@ juce_add_plugin(Faslaset
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES Instrument Synth Drum
     AU_MAIN_TYPE kAudioUnitType_MusicDevice
-    FORMATS VST3 AU Standalone)
+    LV2URI "https://phunkshunz.github.io/lv2/Faslaset"
+    FORMATS VST3 AU Standalone ${PHZ_EXTRA_FORMATS})
 
 target_sources(Faslaset
     PRIVATE
