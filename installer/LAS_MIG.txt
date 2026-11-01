@@ -4,3 +4,5 @@ VEVHUS - prototyp (MASKINHALLEN / Phunkshunz AUDIO)
 2. Starta om DAW:en och skanna plugins.
 3. VEVHUS är ett instrument. Lägg det på ett instrumentspår och tryck PLAY.
    Loket följer tempot. FART 0 = loket står still och pustar.
+4. 32 presets finns i rutan nere till höger (pilarna bläddrar).
+   MIDI: C ånga, D pys, E knack, F klick, G skrammel, B vissla.
