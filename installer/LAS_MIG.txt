@@ -1,0 +1,6 @@
+VEVHUS - prototyp (MASKINHALLEN / Phunkshunz AUDIO)
+
+1. Dubbelklicka installera.command (högerklick > Öppna om macOS bråkar).
+2. Starta om DAW:en och skanna plugins.
+3. VEVHUS är ett instrument. Lägg det på ett instrumentspår och tryck PLAY.
+   Loket följer tempot. FART 0 = loket står still och pustar.
