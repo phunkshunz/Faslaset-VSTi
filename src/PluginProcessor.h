@@ -81,7 +81,7 @@ private:
                         std::atomic<float>* level; std::atomic<float>* len; std::atomic<float>* mute;
                         std::atomic<float>* slipMode; std::atomic<float>* slipDrive; std::atomic<float>* slipFeed; std::atomic<float>* slipMix; };
     std::array<InstParams, motstand::kNumInstruments> ip {};
-    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut;
+    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pRomMode;
 
     double sr = 48000.0;
     bool wasPlaying = false;

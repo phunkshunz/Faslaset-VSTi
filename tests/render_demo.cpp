@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
         set(OH, TEJP, 0.5f); set(RIDE, LIKRIKTARE, 0.3f);
     }
     Elnat hum; hum.prepare(sr); hum.amount = grind ? 0.35f : 0.f;
-    DetroitSmog smog; smog.prepare(sr);
+    DetroitSmog smog; smog.prepare(sr); smog.amount = 0.3f; smog.threshold = 3.5f;   // plugin defaults
     std::array<DrunkRider, kNumInstruments> rider;
     std::array<float, kNumInstruments> rideAmt{ 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 1.f, 1.f, 1.f };
     for (int i = 0; i < kNumInstruments; ++i) rider[i].prepare(sr, 100 + i);

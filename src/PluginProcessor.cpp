@@ -43,6 +43,7 @@ MotstandProcessor::MotstandProcessor()
     pMaster   = apvts.getRawParameterValue (pid::master);
     pElnat    = apvts.getRawParameterValue (pid::elnat);
     pMidiOut  = apvts.getRawParameterValue (pid::midiOut);
+    pRomMode  = apvts.getRawParameterValue (pid::romMode);
 
     std::array<std::array<uint8_t, kMaxSteps>, kNumInstruments> def {};
     defaultPattern (def);
@@ -113,6 +114,7 @@ void MotstandProcessor::pullParameters()
         v.mix     = q.slipMix->load();
     }
     elnat.amount = pElnat->load();
+    kit.setRomBits (pRomMode->load() > 0.5f ? 6 : 0);
     sendMidi = pMidiOut->load() > 0.5f;
     const float jitterMax = pJitter->load();
     clock.jitterMaxMs   = jitterMax;

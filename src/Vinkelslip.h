@@ -144,6 +144,7 @@ struct Vinkelslip {
 
         const float g = 1.f + smooth * smooth * 30.f;            // up to ~+30 dB
         makeup = 1.f / (1.f + smooth * 1.3f);
+        outGain = 1.25f / (1.f + 1.6f * smooth) * levelMatch(smooth);   // louder ≠ better
         float wet;
         if (mode == ROMKROSS) {
             wet = limit(romCrush(dry * g));                       // base rate, aligned with dry
@@ -157,8 +158,25 @@ struct Vinkelslip {
     }
 
 private:
-    float makeup = 1.f;
-    float limit(float y) const { return std::tanh(y * makeup * 1.4f) / 1.4f * 1.25f; }
+    // Measured compensation (dB) per mode at drive 0, 1/8 ... 1, so turning
+    // DRIVE up changes the character, not the loudness. Regenerate with
+    // tests/calibrate_slip.cpp if a shaper changes.
+    static constexpr float kLevelDb[kNumSlipModes][9] = {
+      {-1.88f, -1.76f, -3.40f, -4.26f, -4.43f, -4.20f, -3.77f, -3.23f, -2.62f },
+      {-1.58f, -2.23f, -4.33f, -5.20f, -5.28f, -4.96f, -4.45f, -3.84f, -3.17f },
+      {-1.74f, -1.68f, -3.27f, -3.92f, -3.86f, -3.43f, -2.84f, -2.15f, -1.42f },
+      {-3.13f, -3.09f, -4.58f, -4.52f, -3.81f, -2.92f, -1.99f, -1.05f, -0.09f },
+      {1.69f, 1.92f, 0.18f, -1.33f, -2.43f, -3.09f, -3.38f, -3.44f, -3.35f },
+      {1.83f, 1.49f, -1.28f, -2.87f, -3.18f, -2.93f, -2.52f, -1.52f, -0.95f },
+    };
+    float levelMatch(float d) const {
+        const float x = std::clamp(d, 0.f, 1.f) * 8.f;
+        const int i = std::min(7, (int)x); const float f = x - (float)i;
+        const float db = kLevelDb[mode][i] + (kLevelDb[mode][i + 1] - kLevelDb[mode][i]) * f;
+        return std::pow(10.f, db / 20.f);
+    }
+    float makeup = 1.f, outGain = 1.25f;
+    float limit(float y) const { return std::tanh(y * makeup * 1.4f) / 1.4f * outGain; }
     float shape(float u) {
         float y;
         switch (mode) {

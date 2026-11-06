@@ -48,7 +48,7 @@ namespace pid {
     inline juce::String inst(int i, const char* what) { return juce::String(kInstId[i]) + "_" + what; }
     inline const juce::String tempoSrc = "tempoSrc", bpm = "bpm", jitter = "jitter", drift = "drift",
         nudge = "nudge", ride = "ride", smog = "smog", smogThr = "smogThr", seed = "seed", master = "master",
-        elnat = "elnat", midiOut = "midiOut";
+        elnat = "elnat", midiOut = "midiOut", romMode = "romMode";
 }
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
@@ -72,9 +72,9 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::ride, 1 }, "FYLLA",   // drunk walk amount
           NormalisableRange<float>(0.f, 1.f, 0.01f), 0.7f, pct));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::smog, 1 }, "DETROIT SMOG",
-          NormalisableRange<float>(0.f, 1.f, 0.01f), 0.8f, pct));
+          NormalisableRange<float>(0.f, 1.f, 0.01f), 0.3f, pct));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::smogThr, 1 }, String::fromUTF8(u8"SMOG TRÖSKEL"),
-          NormalisableRange<float>(1.5f, 6.f, 0.1f), 3.f));
+          NormalisableRange<float>(1.5f, 6.f, 0.1f), 3.5f));
     l.add(std::make_unique<AudioParameterInt>(ParameterID{ pid::seed, 1 }, "SEED", 1, 9999, 909));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::master, 1 }, "MASTER",
           NormalisableRange<float>(-24.f, 6.f, 0.1f), 0.f,
@@ -82,6 +82,8 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::elnat, 1 }, String::fromUTF8(u8"ELNÄT"),      // 50 Hz workshop hum
           NormalisableRange<float>(0.f, 1.f, 0.01f), 0.f, pct));
     l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::midiOut, 1 }, "MIDI UT", true));
+    l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::romMode, 1 }, "CYMBAL ROM",
+          StringArray{ "REN", "909 6-BIT" }, 0));
 
     StringArray slipModes; for (auto* m : kSlipModeName) slipModes.add(m);
 
@@ -104,7 +106,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
         l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::inst(i, "slipMode"), 1 }, n + String::fromUTF8(u8" SLIP LÄGE"),
               slipModes, i == KICK ? (int)DIOD : i <= TOM_HI && i >= TOM_LO ? (int)VIKNING : i >= CH ? (int)LIKRIKTARE : (int)GERMANIUM));
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "slipDrive"), 1 }, n + " SLIP DRIVE",
-              NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.18f : 0.f, pct));
+              NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));                     // clean by default
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "slipFeed"), 1 }, n + " MATNING",
               NormalisableRange<float>(0.f, 1.f, 0.001f), 0.5f, pct));
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "slipMix"), 1 }, n + " SLIP MIX",

@@ -24,7 +24,8 @@ utan en maskin med egen instabilitet som man måste kämpa mot.
 - 16/7/11 möts på ettan först efter 77 takter. 16/7/11/13 efter 1001 takter.
 
 ## 4. Detroit Smog (VCA-kollaps) — `DetroitSmog`
-- Summerar transientenergi inom 1 ms. Upp till 3 fulla slag: rent.
+- Bussen är helt ren (0 % THD, mätt) tills den kollapsar. Standard: 30 %, tröskel 3,5.
+- Summerar transientenergi inom 1 ms. Upp till tröskeln: rent.
 - Fler: spänningsfall (rail sag), asymmetrisk diodklippning, slew-utsmetning.
 - Mjuk övergång, klickar aldrig. Körs i 2x oversampling i pluginet.
 
@@ -33,17 +34,21 @@ utan en maskin med egen instabilitet som man måste kämpa mot.
   separat attackpuls + klick, VCA som håller öppet ~3 ms.
 - **VIRVEL:** två sinusbaserade kroppar + snappy brus. **KLAPP:** fyra smällar (0/9/18/28 ms) + rum.
 - **KANT:** dubbelping genom mättande brygga. **TOMS:** kropp + oharmonisk deltonsmod + stickbrus.
-- **HATS/RIDE:** 909-ROM. En bandbegränsad metallvåg räknas fram vid start (32 kHz, 6 bit) och
-  spelas med Hermite-interpolation + rekonstruktionsfilter. TUNE ändrar uppspelningstakten, som på 909.
+- **HATS/RIDE:** 909-ROM. En bandbegränsad metallvåg räknas fram vid start (32 kHz, full upplösning)
+  och spelas med Hermite-interpolation + rekonstruktionsfilter. TUNE ändrar uppspelningstakten, som på 909.
+  **CYMBAL ROM:** REN (standard) eller 909 6-BIT (originalets korn).
   Mätt: under -31 dB energi över 18 kHz, alltså inget digitalt skräp. CH chokar OH.
 - **Komponenttolerans:** varje seed ger maskinen egna små fel (±0,7 % tune, ±4 % decay).
 - **Accent** ändrar klangen (kickens form, virvelns brus), inte bara volymen.
+- Rena röster som standard: ingen inbyggd mättning i virvel, toms och kant. Smutsen väljs till.
 
 ## VINKELSLIP — `src/Vinkelslip.h` (per kanal)
 LÄGE: DIOD, GERMANIUM, TEJP, VIKNING, LIKRIKTARE, ROM. DRIVE, MATNING (hårda slag distar mer), MIX.
 - 4x översampling (linjärfas halfband) + ADAA. Mätt mot vanlig distorsion vid extrem drive:
   20–33 dB mindre skräp (DIOD -41, GERMANIUM -40, TEJP -52, VIKNING -36, LIKRIKTARE -39 dB).
 - Alla kanaler har samma fasta fördröjning (23 samples) även avslagna, så de ligger i fas.
+- Uppmätt nivåkompensation per läge: 0 dB volymändring när DRIVE vrids, bara klangen ändras.
+  Av på alla kanaler som standard.
 
 ## ELNÄT
 50 Hz-brum med udda övertoner, som en dåligt jordad verkstad. Av som standard.

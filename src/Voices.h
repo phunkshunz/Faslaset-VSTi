@@ -12,7 +12,7 @@
 //    RIM         two short pings through a saturating bridge
 //    TOM L/M/H   sine body + inharmonic partial + stick noise
 //    CH/OH/RIDE  909-style ROM: a band-limited metallic recording, built
-//                at 32 kHz and crushed to 6 bits, played back with
+//                at 32 kHz (optionally read as 6-bit like the real ROM), played back with
 //                interpolation and a reconstruction filter. Tune changes
 //                the playback rate, exactly like the 909's tune knob.
 //
@@ -137,7 +137,7 @@ struct Kick {
         click = 0.25f + 0.55f * p.tone;
         phase = 0.f;
         holdN = (int)(0.003 * sr);                                 // VCA holds ~3 ms open
-        shapeK = 1.2f + 2.2f * vel;                                // accent fattens the shape
+        shapeK = 0.9f + 1.3f * vel;                                // accent rounds it fuller
         shapeNorm = 1.f / std::tanh(shapeK);
         gain = velGain(vel) * p.level;
     }
@@ -198,7 +198,7 @@ struct Snare {
         const float snap = air.lp(lp.lp) * noiseEnv * (0.8f + 0.4f * vel);
         const float mix = body * (1.f - 0.55f * p.tone) + snap * (0.45f + 1.0f * p.tone);
         b1 *= b1C; b2 *= b2C; noiseEnv *= noiseC; pEnv *= pC;
-        return std::tanh(mix * 1.2f) * gain;
+        return mix * 0.8f * gain;
     }
 };
 
@@ -264,7 +264,7 @@ struct Rim {
         ph1 += f1 / (float)sr; ph1 -= std::floor(ph1);
         ph2 += f2 / (float)sr; ph2 -= std::floor(ph2);
         const float x = std::sin(kTau * ph1) * env + 0.8f * std::sin(kTau * ph2) * env2 + n.next() * env2 * 0.08f * p.tone;
-        hp.tick(std::tanh(x * (1.6f + p.tone)));
+        hp.tick(x * 0.55f);
         env *= envC; env2 *= env2C;
         return hp.hp * gain;
     }
@@ -300,7 +300,7 @@ struct Tom {
         nf.tick(n.next());
         const float out = std::sin(kTau * phase) * amp + std::sin(kTau * ph2) * a2 + nf.lp * nEnv;
         amp *= ampC; a2 *= a2C; pEnv *= pC; nEnv *= nC;
-        return std::tanh(out * 1.1f) * gain;
+        return out * 0.85f * gain;
     }
 };
 
@@ -347,7 +347,7 @@ struct CymbalRom {
             env *= dc; se *= sc;
             peak = std::max(peak, std::fabs(r.data[i]));
         }
-        for (auto& x : r.data) x = std::round(x / peak * 31.f) / 31.f;   // 6-bit ROM
+        for (auto& x : r.data) x /= peak;                                // full-resolution ROM
         return r;
     }
 
@@ -369,6 +369,7 @@ struct RomVoice {
     const CymbalRom* rom = nullptr;
     double sr = 48000, pos = 1e12, step = 1;
     float minDecay = 0.02f, maxDecay = 0.4f;
+    int   romBits = 0;            // 0 = clean full resolution, 6 = original 909 ROM grit
     float env = 0, envC = 0, gain = 0, chokeC = 0, reconHz = 12000.f;
     bool choking = false;
     Svf recon; OnePole dcb;
@@ -396,7 +397,12 @@ struct RomVoice {
         // 4-point Hermite interpolation through the 6-bit ROM
         const size_t i = (size_t)pos; const float fr = (float)(pos - (double)i);
         const float* d = rom->data.data();
-        const float xm1 = i ? d[i - 1] : d[i], x0 = d[i], x1 = d[i + 1], x2 = d[i + 2];
+        float xm1 = i ? d[i - 1] : d[i], x0 = d[i], x1 = d[i + 1], x2 = d[i + 2];
+        if (romBits > 0) {
+            const float q = (float)((1 << (romBits - 1)) - 1);
+            xm1 = std::round(xm1 * q) / q; x0 = std::round(x0 * q) / q;
+            x1 = std::round(x1 * q) / q;   x2 = std::round(x2 * q) / q;
+        }
         const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.f * x1 - 0.5f * x2;
         const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
         const float s = ((c3 * fr + c2) * fr + c1) * fr + x0;
@@ -422,9 +428,9 @@ struct Kit {
     void prepare(double sr) {
         kick.prepare(sr); snare.prepare(sr); clap.prepare(sr); rim.prepare(sr);
         tomLo.prepare(sr, 82.f, 0x701u); tomMid.prepare(sr, 123.f, 0x702u); tomHi.prepare(sr, 174.f, 0x703u);
-        ch.prepare  (sr, CymbalRom::hat(),  0.012f, 0.11f, 13000.f);
-        oh.prepare  (sr, CymbalRom::hat(),  0.10f,  0.75f, 13000.f);
-        ride.prepare(sr, CymbalRom::ride(), 0.45f,  2.6f,  11000.f);
+        ch.prepare  (sr, CymbalRom::hat(),  0.012f, 0.11f, 15000.f);
+        oh.prepare  (sr, CymbalRom::hat(),  0.10f,  0.75f, 15000.f);
+        ride.prepare(sr, CymbalRom::ride(), 0.45f,  2.6f,  13000.f);
     }
 
     VoiceParams& params(int inst) {
@@ -435,6 +441,9 @@ struct Kit {
             default: return ride.p;
         }
     }
+
+    // 0 = clean cymbals, 6 = the original 909's 6-bit ROM grit
+    void setRomBits(int bits) { ch.romBits = oh.romBits = ride.romBits = bits; }
 
     // Every machine gets its own small "factory" errors, like two real 909s.
     void setTolerance(uint64_t seed) {

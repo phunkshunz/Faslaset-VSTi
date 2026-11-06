@@ -280,7 +280,7 @@ public:
     float threshold  = 3.0f;   // "more than three transients"
     float windowMs   = 1.0f;
     float amount     = 1.0f;   // 0..1, user knob
-    float baseline   = 0.05f;  // always-on dirt, tiny
+    float baseline   = 0.0f;   // optional always-on dirt (0 = bus is clean until it chokes)
 
     void prepare(double sr) {
         sampleRate = sr;
@@ -335,8 +335,11 @@ public:
             const float gain   = 1.f - 0.35f * sag;
             const float slew   = 1.f - 0.85f * collapse;  // 1 = no smear
 
-            left[i]  = shade(left[i],  ch[0], drive, gain, slew);
-            right[i] = shade(right[i], ch[1], drive, gain, slew);
+            // how much of the choked circuit we hear: 0 = untouched, clean bus
+            const float wet = std::clamp(collapse * 3.f + baseline, 0.f, 1.f);
+
+            left[i]  = shade(left[i],  ch[0], drive, gain, slew, wet);
+            right[i] = shade(right[i], ch[1], drive, gain, slew, wet);
         }
 
         pendingCount = 0;
@@ -348,7 +351,7 @@ public:
 private:
     struct ChanState { float slewed = 0.f, dcX = 0.f, dcY = 0.f; };
 
-    float shade(float x, ChanState& s, float drive, float gain, float slew) {
+    float shade(float x, ChanState& s, float drive, float gain, float slew, float wet) {
         // slew limit: max change per sample shrinks as the bus chokes
         const float maxStep = 0.02f + slew * 2.0f;
         const float d = std::clamp(x - s.slewed, -maxStep, maxStep);
@@ -360,11 +363,11 @@ private:
                            : -(1.f - std::exp(u * 0.7f)) / 0.7f;
         y = y / std::max(1.f, drive * 0.6f) * gain;
 
-        // DC blocker (the asymmetry creates offset)
+        // DC blocker (the asymmetry creates offset) on the choked path only
         const float out = y - s.dcX + 0.9995f * s.dcY;
         s.dcX = y;
         s.dcY = out;
-        return out;
+        return x + (out - x) * wet;
     }
 
     float coefFor(double ms) const {
