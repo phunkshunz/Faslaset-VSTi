@@ -5,6 +5,7 @@
 #include "MotstandCore.h"
 #include "Voices.h"
 #include "Vinkelslip.h"
+#include "Fx.h"
 #include <cstdio>
 #include <vector>
 #include <cstring>
@@ -30,7 +31,9 @@ static void writeWav(const char* path, const std::vector<float>& L, const std::v
 
 int main(int argc, char** argv) {
     const char* out = argc > 1 ? argv[1] : "motstand_demo.wav";
-    const bool grind = argc > 2 && std::string(argv[2]) == "slip";   // second arg "slip" = VINKELSLIP on
+    const std::string mode = argc > 2 ? argv[2] : "";
+    const bool fat = mode == "fet";                                    // "fet" = VINKELSLIP + studio effects
+    const bool grind = mode == "slip" || fat;                          // "slip" = VINKELSLIP on
     const int sr = 48000, bs = 256, bars = 32;
     const double bpm = 136.0;
 
@@ -45,6 +48,14 @@ int main(int argc, char** argv) {
         set(OH, TEJP, 0.5f); set(RIDE, LIKRIKTARE, 0.3f);
     }
     Elnat hum; hum.prepare(sr); hum.amount = grind ? 0.35f : 0.f;
+    Varvshall hall; hall.prepare(sr); hall.size = 0.75f; hall.decay = 3.2f; hall.damping = 0.45f; hall.predelayMs = 22.f;
+    Eko eko; eko.division = 2; eko.feedback = 0.45f; eko.tone = 0.45f; eko.wear = 0.35f; eko.prepare(sr);
+    Press press; press.prepare(sr); press.amount = fat ? 0.45f : 0.f;
+    Pump pump; pump.prepare(sr); pump.amount = fat ? 0.35f : 0.f;
+    Isolator iso; iso.prepare(sr);
+    std::array<float, kNumInstruments> sH{}, sE{};
+    if (fat) { sH[CLAP] = 0.35f; sH[RIM] = 0.3f; sH[OH] = 0.25f; sH[RIDE] = 0.3f; sH[TOM_LO] = sH[TOM_MID] = sH[TOM_HI] = 0.25f;
+               sE[RIM] = 0.35f; sE[TOM_HI] = 0.3f; sE[CLAP] = 0.15f; }
     DetroitSmog smog; smog.prepare(sr); smog.amount = 0.3f; smog.threshold = 3.5f;   // plugin defaults
     std::array<DrunkRider, kNumInstruments> rider;
     std::array<float, kNumInstruments> rideAmt{ 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 1.f, 1.f, 1.f };
@@ -98,6 +109,7 @@ int main(int argc, char** argv) {
                         const float t = rider[inst].onTrigger() * rideAmt[inst];
                         kit.trigger(inst, v / 127.f, t, d);
                         slip[(size_t)inst].onTrigger(v / 127.f);
+                        if (inst == KICK) pump.trigger(v / 127.f);
                         smog.addTransient(i, v / 127.f);
                     }
                 }
@@ -106,12 +118,23 @@ int main(int argc, char** argv) {
             float o[kNumInstruments]; kit.process(o);
             for (int inst = 0; inst < kNumInstruments; ++inst) o[inst] = slip[(size_t)inst].process(o[inst]);
             const float h = hum.process(); L[pos + i] += h; R[pos + i] += h;
+            eko.bpm = clock.currentBpm();
+            const float pg = pump.next();
+            float hl = 0, hr = 0, el = 0, er = 0, hiL = 0, hiR = 0, eiL = 0, eiR = 0;
+            for (int inst = 0; inst < kNumInstruments; ++inst) {
+                if (inst != KICK) o[inst] *= pg;
+                const float l = o[inst] * (0.5f - 0.5f * pan[inst]), r = o[inst] * (0.5f + 0.5f * pan[inst]);
+                hiL += l * sH[(size_t)inst]; hiR += r * sH[(size_t)inst]; eiL += l * sE[(size_t)inst]; eiR += r * sE[(size_t)inst];
+            }
+            if (fat) { hall.process(hiL, hiR, hl, hr); eko.process(eiL, eiR, el, er); }
+            L[pos + i] += (hl * 0.8f + el * 0.8f) * pg; R[pos + i] += (hr * 0.8f + er * 0.8f) * pg;
             for (int inst = 0; inst < kNumInstruments; ++inst) {
                 L[pos + i] += o[inst] * (0.5f - 0.5f * pan[inst]);
                 R[pos + i] += o[inst] * (0.5f + 0.5f * pan[inst]);
             }
         }
         smog.process(&L[pos], &R[pos], bs);
+        for (int i = 0; i < bs; ++i) { press.process(L[pos + i], R[pos + i]); iso.process(L[pos + i], R[pos + i]); }
         if (smog.currentCollapse() > 0.3f) ++smogHits;
         maxCollapse = std::max(maxCollapse, smog.currentCollapse());
         pos += bs;

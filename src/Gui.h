@@ -485,4 +485,27 @@ private:
     float needle = 0.f, peak = 0.f;
 };
 
+// ---------------------------------------------------------------------
+//  GAIN REDUCTION bar for PRESS (vertical, green -> red as it squeezes)
+// ---------------------------------------------------------------------
+class GrMeter : public juce::Component
+{
+public:
+    void setValue (float db) { v += (db - v) * (db > v ? 0.6f : 0.15f); repaint(); }
+    void paint (juce::Graphics& g) override
+    {
+        auto b = getLocalBounds().toFloat().reduced (1.f);
+        auto bar = b.withTrimmedBottom (14.f);
+        g.setColour (C::night); g.fillRoundedRectangle (bar, 3.f);
+        g.setColour (C::steel); g.drawRoundedRectangle (bar, 3.f, 1.f);
+        const float frac = juce::jlimit (0.f, 1.f, v / 18.f);
+        auto fill = bar.reduced (3.f); fill = fill.withHeight (fill.getHeight() * frac);
+        g.setColour ((v > 10.f ? C::alarm : C::tube).withAlpha (0.9f)); g.fillRoundedRectangle (fill, 2.f);
+        g.setFont (stencil (9.f)); g.setColour (C::paperDim);
+        g.drawText ("GR", b.removeFromBottom (14.f), juce::Justification::centred, false);
+    }
+private:
+    float v = 0.f;
+};
+
 } // namespace dock

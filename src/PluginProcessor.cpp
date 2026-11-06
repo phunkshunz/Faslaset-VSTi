@@ -30,7 +30,9 @@ MotstandProcessor::MotstandProcessor()
                            apvts.getRawParameterValue (pid::inst (i, "slipMode")),
                            apvts.getRawParameterValue (pid::inst (i, "slipDrive")),
                            apvts.getRawParameterValue (pid::inst (i, "slipFeed")),
-                           apvts.getRawParameterValue (pid::inst (i, "slipMix")) };
+                           apvts.getRawParameterValue (pid::inst (i, "slipMix")),
+                           apvts.getRawParameterValue (pid::inst (i, "sendHall")),
+                           apvts.getRawParameterValue (pid::inst (i, "sendEko")) };
     }
     pTempoSrc = apvts.getRawParameterValue (pid::tempoSrc);
     pBpm      = apvts.getRawParameterValue (pid::bpm);
@@ -45,6 +47,14 @@ MotstandProcessor::MotstandProcessor()
     pElnat    = apvts.getRawParameterValue (pid::elnat);
     pMidiOut  = apvts.getRawParameterValue (pid::midiOut);
     pRomMode  = apvts.getRawParameterValue (pid::romMode);
+    auto P = [this] (const juce::String& id) { return apvts.getRawParameterValue (id); };
+    pHallSize = P (pid::hallSize); pHallDecay = P (pid::hallDecay); pHallDamp = P (pid::hallDamp);
+    pHallPre = P (pid::hallPre); pHallLevel = P (pid::hallLevel); pHallFreeze = P (pid::hallFreeze);
+    pEkoTime = P (pid::ekoTime); pEkoFb = P (pid::ekoFeedback); pEkoTone = P (pid::ekoTone);
+    pEkoWear = P (pid::ekoWear); pEkoLevel = P (pid::ekoLevel); pEkoPing = P (pid::ekoPing);
+    pIsoLow = P (pid::isoLow); pIsoMid = P (pid::isoMid); pIsoHigh = P (pid::isoHigh);
+    pKillLow = P (pid::killLow); pKillMid = P (pid::killMid); pKillHigh = P (pid::killHigh);
+    pPress = P (pid::pressAmt); pPump = P (pid::pump);
 
     std::array<std::array<uint8_t, kMaxSteps>, kNumInstruments> def {};
     defaultPattern (def);
@@ -76,6 +86,7 @@ void MotstandProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     smog.prepare (sr * 2.0);
     for (auto& v : slip) v.prepare (sr);
     elnat.prepare (sr);
+    hall.prepare (sr); eko.prepare (sr); iso.prepare (sr); press.prepare (sr); pump.prepare (sr);
     // every channel goes through VINKELSLIP's fixed delay, the MIX also through Smog's oversampling
     setLatencySamples (Vinkelslip::kLatency + juce::roundToInt (oversampler->getLatencyInSamples()));
     mixBuffer.setSize (2, samplesPerBlock);
@@ -113,7 +124,17 @@ void MotstandProcessor::pullParameters()
         v.drive   = q.slipDrive->load();
         v.matning = q.slipFeed->load();
         v.mix     = q.slipMix->load();
+        sendH[(size_t) i] = q.sendHall->load();
+        sendE[(size_t) i] = q.sendEko->load();
     }
+    hall.size = pHallSize->load(); hall.decay = pHallDecay->load(); hall.damping = pHallDamp->load();
+    hall.predelayMs = pHallPre->load(); hall.freeze = pHallFreeze->load() > 0.5f; hallLevel = pHallLevel->load();
+    eko.division = (int) pEkoTime->load(); eko.feedback = pEkoFb->load(); eko.tone = pEkoTone->load();
+    eko.wear = pEkoWear->load(); eko.pingPong = pEkoPing->load() > 0.5f; ekoLevel = pEkoLevel->load();
+    iso.low  = isoGain (pIsoLow->load(),  pKillLow->load()  > 0.5f);
+    iso.mid  = isoGain (pIsoMid->load(),  pKillMid->load()  > 0.5f);
+    iso.high = isoGain (pIsoHigh->load(), pKillHigh->load() > 0.5f);
+    press.amount = pPress->load(); pump.amount = pPump->load();
     elnat.amount = pElnat->load();
     kit.setRomBits (pRomMode->load() > 0.5f ? 6 : 0);
     sendMidi = pMidiOut->load() > 0.5f;
@@ -136,6 +157,7 @@ bool MotstandProcessor::triggerVoice (int inst, float vel01, int sampleOffset)
     const float tuneMod  = r.onTrigger() * amt;
     kit.trigger (inst, vel01, tuneMod, decayMod);
     slip[(size_t) inst].onTrigger (vel01);
+    if (inst == KICK) pump.trigger (vel01);
     if (! toAux[(size_t) inst])
         smog.addTransient (sampleOffset * 2, vel01);   // smog runs at 2x
     return true;
@@ -186,6 +208,7 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     wasPlaying = playing;
     running.store (playing);
 
+    eko.bpm = clock.currentBpm();          // the echo follows the machine's own drifting tempo
     StepEvent ev[64];
     const int numEv = playing ? clock.process (n, ev, 64) : 0;
     for (auto& r : rider) r.advance (n);
@@ -259,12 +282,22 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             o[i] = slip[(size_t) i].process (o[i]);           // VINKELSLIP (fixed latency on every channel)
         const float hum = elnat.process();
         mixL[s] += hum; mixR[s] += hum;
+        const float pg = pump.next();           // ducks everything except the kick
+        float hIL = 0.f, hIR = 0.f, eIL = 0.f, eIR = 0.f;
         for (int i = 0; i < kNumInstruments; ++i)
         {
-            const float l = o[i] * gL[(size_t) i], r = o[i] * gR[(size_t) i];
+            const float duck = i == KICK ? 1.f : pg;
+            const float l = o[i] * gL[(size_t) i] * duck, r = o[i] * gR[(size_t) i] * duck;
             if (toAux[(size_t) i]) { auxL[(size_t) i][s] += l; if (auxR[(size_t) i] != auxL[(size_t) i]) auxR[(size_t) i][s] += r; }
             else                   { mixL[s] += l; mixR[s] += r; }
+            hIL += l * sendH[(size_t) i]; hIR += r * sendH[(size_t) i];
+            eIL += l * sendE[(size_t) i]; eIR += r * sendE[(size_t) i];
         }
+        float hl, hr, el, er;
+        hall.process (hIL, hIR, hl, hr);
+        eko.process (eIL, eIR, el, er);
+        mixL[s] += (hl * hallLevel + el * ekoLevel) * pg;
+        mixR[s] += (hr * hallLevel + er * ekoLevel) * pg;
     }
 
     // ---- Detroit Smog on the MIX, at 2x ----
@@ -272,6 +305,16 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     auto up = oversampler->processSamplesUp (block);
     smog.process (up.getChannelPointer (0), up.getChannelPointer (1), (int) up.getNumSamples());
     oversampler->processSamplesDown (block);
+
+    // ---- PRESS then ISOLATOR (the DJ mixer sits last, like Mills' setup) ----
+    for (int s = 0; s < n; ++s)
+    {
+        float l = mixL[s], r = mixR[s];
+        press.process (l, r);
+        iso.process (l, r);
+        mixL[s] = l; mixR[s] = r;
+    }
+    pressGr.store (press.gainReductionDb());
 
     auto main = getBusBuffer (buffer, false, 0);
     for (int c = 0; c < main.getNumChannels(); ++c)

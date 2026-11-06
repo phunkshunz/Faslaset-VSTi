@@ -83,7 +83,7 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     void setPlayhead (int pos) { if (pos != playhead) { playhead = pos; repaint(); } }
-    static constexpr int kCell = 17;
+    static constexpr int kCell = 15;
 private:
     int cellAt (float x) const { return juce::jlimit (0, motstand::kMaxSteps - 1, (int) (x / kCell)); }
     MotstandProcessor& proc;
@@ -102,7 +102,7 @@ public:
     void randomise();
     StepGrid grid;
     // layout x positions (design units), shared with the header
-    static constexpr int xDice = 6, xName = 32, xGrid = 130, xLen = 680, xKnobs = 728, xMode = 884, xSlip = 982, slipStep = 42, xMute = 1112, knobW = 36;
+    static constexpr int xDice = 6, xName = 32, xGrid = 130, xLen = 618, xKnobs = 666, knobStep = 38, xMode = 826, xSlip = 920, slipStep = 38, xSend = 1042, xMute = 1124, knobW = 36;
 private:
     MotstandProcessor& proc;
     int inst;
@@ -112,6 +112,7 @@ private:
     std::array<juce::Slider, 4> voice;      // TUNE DECAY TON NIVÅ
     juce::ComboBox mode;
     std::array<juce::Slider, 3> slipK;      // DRIVE MATNING MIX
+    std::array<juce::Slider, 2> sends;      // HALL EKO
     juce::ToggleButton mute;
     std::vector<std::unique_ptr<APVTS::SliderAttachment>> sAtt;
     std::unique_ptr<APVTS::ComboBoxAttachment> mAtt;
@@ -128,7 +129,7 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     void tick();                       // 30 Hz from the editor timer
-    static constexpr int W = 1200, H = 780;
+    static constexpr int W = 1200, H = 936;
 private:
     void setLang (bool english);
     void randomiseZeit();
@@ -158,6 +159,20 @@ private:
     SmogMeter meter;
     LabeledKnob smogAmt, smogThr, elnat, master;
     DiceButton smogDice;
+    // VARVSHALL
+    LabeledKnob hSize, hDecay, hDamp, hPre, hLevel;
+    juce::ToggleButton hFreeze;
+    // EKO
+    juce::ComboBox eTime;
+    LabeledKnob eFb, eTone, eWear, eLevel;
+    juce::ToggleButton ePing;
+    // ISOLATOR
+    LabeledKnob iLow, iMid, iHigh;
+    juce::ToggleButton kLow, kMid, kHigh;
+    // PRESS
+    LabeledKnob pAmt, pPump;
+    GrMeter gr;
+    DiceButton fxDice;
     // lanes
     std::vector<std::unique_ptr<LaneRow>> lanes;
     DiceButton slipDice;
@@ -165,6 +180,9 @@ private:
     std::vector<std::unique_ptr<APVTS::SliderAttachment>> sAtt;
     std::unique_ptr<APVTS::ComboBoxAttachment> romAtt;
     std::unique_ptr<APVTS::ButtonAttachment> midiAtt, tempoAtt;
+    std::vector<std::unique_ptr<APVTS::ButtonAttachment>> bAtt;
+    std::unique_ptr<APVTS::ComboBoxAttachment> eTimeAtt;
+    void randomiseFx();
 };
 
 } // namespace dock

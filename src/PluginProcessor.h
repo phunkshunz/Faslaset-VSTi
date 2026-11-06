@@ -44,6 +44,7 @@ public:
     // ---- meters for the GUI ----
     float getSlipMs() const      { return slipMs.load(); }
     float getCollapse() const    { return collapse.load(); }
+    float getPressGr() const     { return pressGr.load(); }
     float getCurrentBpm() const  { return bpmNow.load(); }
     int64_t getStepIndex() const { return stepNow.load(); }
     bool isRunning() const       { return running.load(); }
@@ -65,6 +66,11 @@ private:
     std::array<motstand::PolyTrack, motstand::kNumInstruments> lanes;
     std::array<motstand::Vinkelslip, motstand::kNumInstruments> slip;
     motstand::Elnat elnat;
+    motstand::Varvshall hall;
+    motstand::Eko eko;
+    motstand::Isolator iso;
+    motstand::Press press;
+    motstand::Pump pump;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
 
     // MIDI out: note-offs waiting to be sent (one per instrument is enough)
@@ -79,16 +85,22 @@ private:
     // cached parameter pointers
     struct InstParams { std::atomic<float>* tune; std::atomic<float>* decay; std::atomic<float>* tone;
                         std::atomic<float>* level; std::atomic<float>* len; std::atomic<float>* mute;
-                        std::atomic<float>* slipMode; std::atomic<float>* slipDrive; std::atomic<float>* slipFeed; std::atomic<float>* slipMix; };
+                        std::atomic<float>* slipMode; std::atomic<float>* slipDrive; std::atomic<float>* slipFeed; std::atomic<float>* slipMix;
+                        std::atomic<float>* sendHall; std::atomic<float>* sendEko; };
     std::array<InstParams, motstand::kNumInstruments> ip {};
-    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pRomMode;
+    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pRomMode,
+        *pHallSize, *pHallDecay, *pHallDamp, *pHallPre, *pHallLevel, *pHallFreeze,
+        *pEkoTime, *pEkoFb, *pEkoTone, *pEkoWear, *pEkoLevel, *pEkoPing,
+        *pIsoLow, *pIsoMid, *pIsoHigh, *pKillLow, *pKillMid, *pKillHigh, *pPress, *pPump;
+    float hallLevel = 0.8f, ekoLevel = 0.8f;
+    std::array<float, motstand::kNumInstruments> sendH {}, sendE {};
 
     double sr = 48000.0;
     bool wasPlaying = false;
     int lastSeed = -1;
     float masterGain = 1.f;
 
-    std::atomic<float> slipMs { 0.f }, collapse { 0.f }, bpmNow { 133.f };
+    std::atomic<float> slipMs { 0.f }, collapse { 0.f }, bpmNow { 133.f }, pressGr { 0.f };
     std::atomic<int64_t> stepNow { 0 };
     std::atomic<bool> running { false };
 

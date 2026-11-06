@@ -57,12 +57,32 @@ LÄGE: DIOD, GERMANIUM, TEJP, VIKNING, LIKRIKTARE, ROM. DRIVE, MATNING (hårda s
 Varje steg skickas som GM 909-not på kanal 10 (30 ms långa), med drift och jitter inbakat.
 Spela in den i Bitwig, så får du Mills-timingen som MIDI. Kan stängas av (MIDI UT).
 
+## MOTSTÅND vs BETONG
+BETONG (gratis) = sampler som hackar dina egna ljud. MOTSTÅND (premium) = helsyntetiserad 909
+med studioeffekter, VINKELSLIP och liveprestanda. Inga samples, ingen överlappning.
+
+## Studioeffekter (steg 4c) — `src/Fx.h`
+Signalväg: röster → VINKELSLIP → (send HALL/EKO per kanal) → MIX → Detroit Smog → PRESS → ISOLATOR → MASTER.
+- **VARVSHALL:** 8-linjers FDN-reverb, diffusion, långsamt modulerade linjer (ingen metallisk ringning),
+  lågskärning (kicken hålls ute), STORLEK, SVANS 0,3–12 s, MÖRKER, AVSTÅND 0–120 ms, NIVÅ,
+  **FRYS** (ringer för evigt). Mätt: efterklangstiden träffar ratten inom 6 %, frysen 0,0 dB på 12 s.
+- **EKO:** stereo tejpeko synkat till maskinens EGET drivande tempo (1/16–1/2), ÅTERKOPPLING upp till
+  105 % (tejpen tämjer självsvängningen), TON, SLITAGE (wow, flutter, mättnad), PINGPONG.
+  Mätt: ekot landar på exakt rätt sample.
+- **ISOLATOR:** DJ-mixerns 3-bands kill-EQ (Linkwitz-Riley 24 dB/okt vid 250 Hz och 2,5 kHz),
+  LÅG/MITT/TOPP + KILL-knappar. Mätt: summerar till 0,00 dB, kills -34 till -53 dB.
+- **PRESS:** bus-kompressor med en ratt och automatisk nivå. **PUMP:** kicken duckar allt annat (upp till -14 dB).
+- Tärning för effekterna (smakfulla sends: kicken hålls torr).
+
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
 3. ✅ PluginProcessor: allt ihopkopplat, separata utgångar per instrument, 2x oversampling på Smog
 4a. ✅ Ljud v2: nya röster, VINKELSLIP, ELNÄT, MIDI ut
 4b. ✅ Panel i DOCKLANDS-stil (se nedan)
+4c. ✅ Studioeffekter: VARVSHALL, EKO, ISOLATOR, PRESS + PUMP, sends per kanal
+4d. Sequencer: CHANS (sannolikhet), RULLE (rullningar), steglås, 8 mönster A–H
+4e. 40+ presets (kit + mönster)
 5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
 
 ## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`
@@ -81,7 +101,7 @@ Spela in den i Bitwig, så får du Mills-timingen som MIDI. Kan stängas av (MID
 
 ## Panelen (steg 4b) — `src/Gui.h`, `src/PluginEditor.*`
 DOCKLANDS: rostig varvsplåt med nitar, rostrinnor och repor, lysrörsgrönt sken, Dymo-etiketter.
-Ritas i 1200 x 780 och skalas fritt (60–150 %) med låst proportion.
+Ritas i 1200 x 936 och skalas fritt (55–150 %) med låst proportion. Startar i 900 x 702 (passar en 13-tums laptop).
 - **DIE ZEIT:** strobe-ring som på en Technics (prickarna står still i fas, kryper när maskinen glider),
   BPM + "I FAS / 12 MS EFTER" i mitten, **jogghjul** för NUDGE (dra höger/vänster, fjädrar tillbaka),
   JITTER, DRIFT, FYLLA, BPM, EGET TEMPO, tärning.

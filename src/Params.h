@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "Voices.h"
 #include "Vinkelslip.h"
+#include "Fx.h"
 
 namespace motstand {
 
@@ -48,7 +49,11 @@ namespace pid {
     inline juce::String inst(int i, const char* what) { return juce::String(kInstId[i]) + "_" + what; }
     inline const juce::String tempoSrc = "tempoSrc", bpm = "bpm", jitter = "jitter", drift = "drift",
         nudge = "nudge", ride = "ride", smog = "smog", smogThr = "smogThr", seed = "seed", master = "master",
-        elnat = "elnat", midiOut = "midiOut", romMode = "romMode";
+        elnat = "elnat", midiOut = "midiOut", romMode = "romMode",
+        hallSize = "hallSize", hallDecay = "hallDecay", hallDamp = "hallDamp", hallPre = "hallPre", hallLevel = "hallLevel", hallFreeze = "hallFreeze",
+        ekoTime = "ekoTime", ekoFeedback = "ekoFeedback", ekoTone = "ekoTone", ekoWear = "ekoWear", ekoLevel = "ekoLevel", ekoPing = "ekoPing",
+        isoLow = "isoLow", isoMid = "isoMid", isoHigh = "isoHigh", killLow = "killLow", killMid = "killMid", killHigh = "killHigh",
+        pressAmt = "pressAmt", pump = "pump";
 }
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
@@ -85,6 +90,46 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::romMode, 1 }, "CYMBAL ROM",
           StringArray{ "REN", "909 6-BIT" }, 0));
 
+    // ---- VARVSHALL ----
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::hallSize, 1 }, "HALL STORLEK",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.6f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::hallDecay, 1 }, "HALL EFTERKLANG",
+          NormalisableRange<float>(0.3f, 12.f, 0.01f, 0.4f), 2.4f, AudioParameterFloatAttributes().withLabel("s")));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::hallDamp, 1 }, String::fromUTF8(u8"HALL DÄMPNING"),
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.45f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::hallPre, 1 }, String::fromUTF8(u8"HALL FÖRDRÖJNING"),
+          NormalisableRange<float>(0.f, 120.f, 0.1f), 18.f, AudioParameterFloatAttributes().withLabel("ms")));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::hallLevel, 1 }, String::fromUTF8(u8"HALL NIVÅ"),
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.8f, pct));
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::hallFreeze, 1 }, "HALL FRYS", false));
+    // ---- EKO ----
+    l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::ekoTime, 1 }, "EKO TID",
+          StringArray{ "1/16", "1/8", "3/16", "1/4", "3/8", "1/2" }, 2));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::ekoFeedback, 1 }, String::fromUTF8(u8"EKO ÅTERKOPPLING"),
+          NormalisableRange<float>(0.f, 1.05f, 0.001f), 0.42f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::ekoTone, 1 }, "EKO TON",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.5f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::ekoWear, 1 }, "EKO SLITAGE",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.3f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::ekoLevel, 1 }, String::fromUTF8(u8"EKO NIVÅ"),
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.8f, pct));
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::ekoPing, 1 }, "EKO PINGPONG", true));
+    // ---- ISOLATOR (0.8 = unity, 0 = kill) ----
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::isoLow, 1 }, String::fromUTF8(u8"ISOLATOR LÅG"),
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.8f));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::isoMid, 1 }, "ISOLATOR MITT",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.8f));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::isoHigh, 1 }, "ISOLATOR TOPP",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.8f));
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::killLow, 1 }, String::fromUTF8(u8"KILL LÅG"), false));
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::killMid, 1 }, "KILL MITT", false));
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::killHigh, 1 }, "KILL TOPP", false));
+    // ---- PRESS ----
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::pressAmt, 1 }, "PRESS",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::pump, 1 }, "PUMP",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+
     StringArray slipModes; for (auto* m : kSlipModeName) slipModes.add(m);
 
     // ---- per instrument ----
@@ -111,8 +156,19 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
               NormalisableRange<float>(0.f, 1.f, 0.001f), 0.5f, pct));
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "slipMix"), 1 }, n + " SLIP MIX",
               NormalisableRange<float>(0.f, 1.f, 0.001f), 1.f, pct));
+        // sends to the studio effects
+        l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "sendHall"), 1 }, n + " HALL",
+              NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+        l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "sendEko"), 1 }, n + " EKO",
+              NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
     }
     return l;
+}
+
+// ISOLATOR knob -> linear gain: 0.8 = unity, 1.0 = +3.9 dB, 0 = kill
+inline float isoGain(float knob, bool kill) {
+    if (kill || knob < 0.01f) return 0.f;
+    const float x = knob / 0.8f; return x * x;
 }
 
 // Default lanes: a Mills-ish loop. Toms/rim on 7, 11, 13 against the 16 kick.

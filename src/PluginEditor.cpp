@@ -210,6 +210,15 @@ LaneRow::LaneRow (MotstandProcessor& p, int i) : grid (p, i), proc (p), inst (i)
         addAndMakeVisible (slipK[(size_t) k]);
         sAtt.push_back (std::make_unique<APVTS::SliderAttachment> (p.apvts, pid::inst (i, sIds[k]), slipK[(size_t) k]));
     }
+    const char* fxIds[2] = { "sendHall", "sendEko" };
+    for (int k = 0; k < 2; ++k)
+    {
+        sends[(size_t) k].setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        sends[(size_t) k].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        sends[(size_t) k].setPopupDisplayEnabled (true, true, nullptr);
+        addAndMakeVisible (sends[(size_t) k]);
+        sAtt.push_back (std::make_unique<APVTS::SliderAttachment> (p.apvts, pid::inst (i, fxIds[k]), sends[(size_t) k]));
+    }
     mute.setColour (juce::ToggleButton::tickColourId, C::alarm);
     addAndMakeVisible (mute);
     muteAtt = std::make_unique<APVTS::ButtonAttachment> (p.apvts, pid::inst (i, "mute"), mute);
@@ -229,6 +238,8 @@ void LaneRow::setLang (const Lang& l)
                           "Click = hit. Drag up/down = velocity. Right click = accent/soft/off."));
     len.setTooltip (l.t ("Loopens längd i steg (1-32)", "Loop length in steps (1-32)"));
     mode.setTooltip (l.t ("VINKELSLIP-läge", "VINKELSLIP mode"));
+    sends[0].setTooltip (l.t ("Skicka till VARVSHALL", "Send to VARVSHALL (reverb)"));
+    sends[1].setTooltip (l.t ("Skicka till EKO", "Send to EKO (tape echo)"));
     repaint();
 }
 
@@ -238,8 +249,9 @@ void LaneRow::resized()
     dice.setBounds (xDice, (h - 22) / 2, 22, 22);
     grid.setBounds (xGrid, 6, StepGrid::kCell * kMaxSteps, h - 12);
     len.setBounds (xLen, 9, 40, h - 18);
-    for (int i = 0; i < 4; ++i) voice[(size_t) i].setBounds (xKnobs + i * (k + 2), 3, k, h - 6);
-    mode.setBounds (xMode, (h - 22) / 2, 92, 22);
+    for (int i = 0; i < 4; ++i) voice[(size_t) i].setBounds (xKnobs + i * knobStep, 3, k, h - 6);
+    mode.setBounds (xMode, (h - 22) / 2, 86, 22);
+    for (int i = 0; i < 2; ++i) sends[(size_t) i].setBounds (xSend + i * knobStep, 3, k, h - 6);
     for (int i = 0; i < 3; ++i) slipK[(size_t) i].setBounds (xSlip + i * slipStep, 3, k, h - 6);
     mute.setBounds (xMute, (h - 22) / 2, 44, 22);
 }
@@ -252,7 +264,10 @@ void LaneRow::paint (juce::Graphics& g)
           muted ? juce::Colour (0xff3a1610) : juce::Colour (0xff141414));
     // VINKELSLIP well
     g.setColour (juce::Colours::black.withAlpha (0.25f));
-    g.fillRoundedRectangle ((float) xMode - 6.f, 3.f, (float) (xMute - xMode) - 4.f, (float) getHeight() - 6.f, 4.f);
+    g.fillRoundedRectangle ((float) xMode - 6.f, 3.f, (float) (xSend - xMode) - 4.f, (float) getHeight() - 6.f, 4.f);
+    // send well
+    g.setColour (C::tubeDeep.withAlpha (0.35f));
+    g.fillRoundedRectangle ((float) xSend - 5.f, 3.f, (float) (2 * knobStep) + 4.f, (float) getHeight() - 6.f, 4.f);
 }
 
 void LaneRow::randomise()
@@ -353,6 +368,27 @@ Root::Root (MotstandProcessor& p)
     addAndMakeVisible (smogDice);
     smogDice.onClick = [this] { randomiseSmog(); };
 
+    // ---- studio effects ----
+    auto knob = [&] (LabeledKnob& k, const juce::String& id) { addAndMakeVisible (k); sAtt.push_back (std::make_unique<APVTS::SliderAttachment> (p.apvts, id, k.slider)); };
+    auto lamp = [&] (juce::ToggleButton& b, const juce::String& id, juce::Colour c) {
+        b.setColour (juce::ToggleButton::tickColourId, c); addAndMakeVisible (b);
+        bAtt.push_back (std::make_unique<APVTS::ButtonAttachment> (p.apvts, id, b)); };
+    knob (hSize, pid::hallSize); knob (hDecay, pid::hallDecay); knob (hDamp, pid::hallDamp);
+    knob (hPre, pid::hallPre); knob (hLevel, pid::hallLevel);
+    lamp (hFreeze, pid::hallFreeze, C::hazard);
+    for (auto* t : { "1/16", "1/8", "3/16", "1/4", "3/8", "1/2" }) eTime.addItem (t, eTime.getNumItems() + 1);
+    addAndMakeVisible (eTime);
+    eTimeAtt = std::make_unique<APVTS::ComboBoxAttachment> (p.apvts, pid::ekoTime, eTime);
+    knob (eFb, pid::ekoFeedback); knob (eTone, pid::ekoTone); knob (eWear, pid::ekoWear); knob (eLevel, pid::ekoLevel);
+    lamp (ePing, pid::ekoPing, C::tube);
+    knob (iLow, pid::isoLow); knob (iMid, pid::isoMid); knob (iHigh, pid::isoHigh);
+    lamp (kLow, pid::killLow, C::alarm); lamp (kMid, pid::killMid, C::alarm); lamp (kHigh, pid::killHigh, C::alarm);
+    kLow.setButtonText ("KILL"); kMid.setButtonText ("KILL"); kHigh.setButtonText ("KILL");
+    knob (pAmt, pid::pressAmt); knob (pPump, pid::pump);
+    addAndMakeVisible (gr);
+    addAndMakeVisible (fxDice);
+    fxDice.onClick = [this] { randomiseFx(); };
+
     // ---- lanes ----
     for (int i = 0; i < kNumInstruments; ++i)
     {
@@ -384,6 +420,26 @@ void Root::randomiseSmog()
     juce::Random r;
     setParam (pid::smog, 0.1f + r.nextFloat() * 0.6f);
     setParam (pid::smogThr, 2.5f + r.nextFloat() * 2.f);
+}
+
+void Root::randomiseFx()
+{
+    juce::Random r;
+    setParam (pid::hallSize, 0.3f + r.nextFloat() * 0.7f);
+    setParam (pid::hallDecay, 0.8f + r.nextFloat() * 5.f);
+    setParam (pid::hallDamp, 0.2f + r.nextFloat() * 0.6f);
+    setParam (pid::hallPre, r.nextFloat() * 60.f);
+    setParam (pid::ekoTime, (float) r.nextInt (6));
+    setParam (pid::ekoFeedback, 0.2f + r.nextFloat() * 0.5f);
+    setParam (pid::ekoTone, 0.2f + r.nextFloat() * 0.6f);
+    setParam (pid::ekoWear, r.nextFloat() * 0.7f);
+    // tasteful sends: hats, ride, clap and rim get some space, kick stays dry
+    for (int i = 0; i < kNumInstruments; ++i)
+    {
+        const bool wet = i == CLAP || i == RIM || i == OH || i == RIDE || (i >= TOM_LO && i <= TOM_HI);
+        setParam (pid::inst (i, "sendHall"), wet ? r.nextFloat() * 0.45f : 0.f);
+        setParam (pid::inst (i, "sendEko"), wet && r.nextFloat() < 0.4f ? r.nextFloat() * 0.4f : 0.f);
+    }
 }
 
 void Root::randomiseSlip()
@@ -431,6 +487,25 @@ void Root::setLang (bool english)
     smogDice.setTooltip (lang.t ("Slumpa Detroit Smog", "Randomise Detroit Smog"));
     slipDice.setTooltip (lang.t ("Slumpa VINKELSLIP på alla kanaler", "Randomise VINKELSLIP on all channels"));
 
+    hSize.text = lang.t ("STORLEK", "SIZE"); hDecay.text = lang.t ("SVANS", "TAIL");
+    hDamp.text = lang.t ("MÖRKER", "DARK"); hPre.text = lang.t ("AVSTÅND", "PREDELAY"); hLevel.text = lang.t ("NIVÅ", "LEVEL");
+    hDecay.slider.setTooltip (lang.t ("Efterklangstid (svansen)", "Reverb decay time"));
+    hDamp.slider.setTooltip (lang.t ("Dämpning: hur mörk hallen låter", "Damping: how dark the hall sounds"));
+    hPre.slider.setTooltip (lang.t ("Fördröjning innan hallen svarar", "Pre-delay before the hall answers"));
+    hFreeze.setButtonText (lang.t ("FRYS", "FREEZE"));
+    hFreeze.setTooltip (lang.t ("Frys hallen: den ringer för evigt", "Freeze the hall: it rings forever"));
+    eFb.text = lang.t ("ÅTERKOPPL.", "FEEDBACK"); eTone.text = lang.t ("TON", "TONE");
+    eWear.text = lang.t ("SLITAGE", "WEAR"); eLevel.text = lang.t ("NIVÅ", "LEVEL");
+    ePing.setButtonText ("PINGPONG");
+    eTime.setTooltip (lang.t ("Ekots tid, följer maskinens drivande tempo", "Echo time, follows the machine's drifting tempo"));
+    iLow.text = lang.t ("LÅG", "LOW"); iMid.text = lang.t ("MITT", "MID"); iHigh.text = lang.t ("TOPP", "HIGH");
+    iLow.slider.setTooltip (lang.t ("Isolator: mitten = rakt, ner = bort, upp = mer", "Isolator: centre = flat, down = cut, up = boost"));
+    pAmt.text = "PRESS"; pPump.text = "PUMP";
+    pAmt.slider.setTooltip (lang.t ("Bus-kompressor med automatisk nivå", "Bus compressor with automatic make-up"));
+    pPump.slider.setTooltip (lang.t ("Kicken duckar allt annat", "The kick ducks everything else"));
+    fxDice.setTooltip (lang.t ("Slumpa effekterna och sends", "Randomise the effects and sends"));
+    for (auto* k : { &hSize, &hDecay, &hDamp, &hPre, &hLevel, &eFb, &eTone, &eWear, &eLevel, &iLow, &iMid, &iHigh, &pAmt, &pPump }) { k->resized(); k->repaint(); }
+
     for (auto& l : lanes) l->setLang (lang);
     for (auto* k : { &jitter, &drift, &fylla, &bpm, &smogAmt, &smogThr, &elnat, &master }) { k->resized(); k->repaint(); }
     repaint();
@@ -463,10 +538,25 @@ void Root::resized()
     elnat.setBounds (1056, 160, 60, 72);  master.setBounds (1120, 160, 60, 72);
     smogDice.setBounds (1152, 58, 24, 24);
 
-    // lanes (plate 8,310 1184x462)
+    // VARVSHALL (plate 8,310 300x152)
+    { int x = 18; for (auto* k : { &hSize, &hDecay, &hDamp, &hPre, &hLevel }) { k->setBounds (x, 340, 56, 70); x += 56; } }
+    hFreeze.setBounds (18, 420, 72, 22);
+    // EKO (plate 316,310 300x152)
+    eTime.setBounds (328, 344, 70, 22);
+    ePing.setBounds (328, 378, 70, 22);
+    { int x = 404; for (auto* k : { &eFb, &eTone, &eWear, &eLevel }) { k->setBounds (x, 340, 52, 70); x += 52; } }
+    // ISOLATOR (plate 624,310 276x152)
+    { int x = 640; for (auto* k : { &iLow, &iMid, &iHigh }) { k->setBounds (x, 334, 76, 82); x += 84; } }
+    kLow.setBounds (652, 422, 52, 20); kMid.setBounds (736, 422, 52, 20); kHigh.setBounds (820, 422, 52, 20);
+    // PRESS (plate 908,310 284x152)
+    pAmt.setBounds (926, 334, 76, 82); pPump.setBounds (1010, 334, 76, 82);
+    gr.setBounds (1110, 334, 30, 104);
+    fxDice.setBounds (1158, 316, 24, 24);
+
+    // lanes (plate 8,470 1184x458)
     for (int i = 0; i < kNumInstruments; ++i)
-        lanes[(size_t) i]->setBounds (8, 346 + i * 42, 1184, 42);
-    slipDice.setBounds (8 + LaneRow::xMute + 11, 318, 22, 22);
+        lanes[(size_t) i]->setBounds (8, 506 + i * 42, 1184, 42);
+    slipDice.setBounds (8 + LaneRow::xMute + 11, 478, 22, 22);
 }
 
 void Root::paint (juce::Graphics& g)
@@ -495,30 +585,38 @@ void Root::paint (juce::Graphics& g)
     plate (g, { 8.f, 52.f, 396.f, 250.f }, "DIE ZEIT");
     plate (g, { 412.f, 52.f, 376.f, 250.f }, lang.t ("RINGARNA", "THE RINGS"));
     plate (g, { 796.f, 52.f, 396.f, 250.f }, "DETROIT SMOG", true);
-    plate (g, { 8.f, 310.f, 1184.f, 464.f }, "");
+    plate (g, { 8.f, 310.f, 300.f, 152.f }, "VARVSHALL");
+    plate (g, { 316.f, 310.f, 300.f, 152.f }, "EKO");
+    plate (g, { 624.f, 310.f, 276.f, 152.f }, "ISOLATOR");
+    plate (g, { 908.f, 310.f, 284.f, 152.f }, "PRESS", true);
+    plate (g, { 8.f, 470.f, 1184.f, 458.f }, "");
 
     // ---- lane header ----
     g.setFont (stencil (9.5f)); g.setColour (C::paperDim);
-    auto hdr = [&] (int x, int w, const juce::String& s) { g.drawText (s, 8 + x, 322, w, 14, juce::Justification::centred, false); };
+    auto hdr = [&] (int x, int w, const juce::String& s) { g.drawText (s, 8 + x, 482, w, 14, juce::Justification::centred, false); };
     hdr (LaneRow::xName, 92, lang.t ("KANAL", "CHANNEL"));
     for (int i = 0; i < 32; i += 4)
         hdr (LaneRow::xGrid + i * StepGrid::kCell, StepGrid::kCell, juce::String (i + 1));
     hdr (LaneRow::xLen, 40, lang.t ("LÄNGD", "LENGTH"));
     const char* vSV[4] = { "TUNE", "DECAY", "TON", u8"NIVÅ" };
     const char* vEN[4] = { "TUNE", "DECAY", "TONE", "LEVEL" };
-    for (int i = 0; i < 4; ++i) hdr (LaneRow::xKnobs + i * (LaneRow::knobW + 2) - 4, LaneRow::knobW + 8, lang.t (vSV[i], vEN[i]));
+    for (int i = 0; i < 4; ++i) hdr (LaneRow::xKnobs + i * LaneRow::knobStep - 4, LaneRow::knobW + 8, lang.t (vSV[i], vEN[i]));
     g.setColour (C::tube.withAlpha (0.85f));
     hdr (LaneRow::xMode - 4, 96, "VINKELSLIP");
     g.setColour (C::paperDim);
     const char* sSV[3] = { "DRIVE", "MATNING", "MIX" };
     const char* sEN[3] = { "DRIVE", "FEED", "MIX" };
     for (int i = 0; i < 3; ++i) hdr (LaneRow::xSlip + i * LaneRow::slipStep - 5, LaneRow::knobW + 10, lang.t (sSV[i], sEN[i]));
+    g.setColour (C::tube.withAlpha (0.7f));
+    hdr (LaneRow::xSend - 4, LaneRow::knobW + 8, "HALL");
+    hdr (LaneRow::xSend + LaneRow::knobStep - 4, LaneRow::knobW + 8, "EKO");
 }
 
 void Root::tick()
 {
     strobe.update (proc.getSlipMs(), proc.getCurrentBpm(), proc.isRunning());
     meter.setValue (proc.getCollapse());
+    gr.setValue (proc.getPressGr());
     rings.repaint();
     const float n = proc.apvts.getRawParameterValue (pid::nudge)->load();
     if (std::abs (n) > 0.01f) jog.spin (n);
@@ -544,9 +642,9 @@ MotstandEditor::MotstandEditor (MotstandProcessor& p)
     tips.setLookAndFeel (&lnf);
     addAndMakeVisible (root);
     setResizable (true, true);
-    setResizeLimits (720, 468, 1800, 1170);
+    setResizeLimits (660, 515, 1800, 1404);
     if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) dock::Root::W / dock::Root::H);
-    setSize (1080, 702);
+    setSize (900, 702);   // fits a 13" laptop next to the DAW; drag the corner for bigger
     startTimerHz (30);
 }
 

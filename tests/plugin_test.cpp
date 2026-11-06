@@ -178,6 +178,25 @@ int main()
         std::printf ("LATENS   %d samples (%.2f ms)\n", p.getLatencySamples(), p.getLatencySamples() / sr * 1000.0);
     }
 
+    // 10. Studio effects pushed to the limit: still sane. All three kills: silence.
+    {
+        MotstandProcessor p;
+        auto set = [&] (const juce::String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+        for (int i = 0; i < motstand::kNumInstruments; ++i) { set (motstand::pid::inst (i, "sendHall"), 1.f); set (motstand::pid::inst (i, "sendEko"), 1.f); }
+        set (motstand::pid::ekoFeedback, 1.05f); set (motstand::pid::ekoWear, 1.f); set (motstand::pid::hallDecay, 12.f);
+        set (motstand::pid::pressAmt, 1.f); set (motstand::pid::pump, 1.f);
+        p.prepareToPlay (sr, 512);
+        auto r = run (p, 10.0);
+        std::printf ("FX MAX   all sends, max feedback, 12 s hall, full press+pump: rms %.3f peak %.2f, GR %.1f dB\n", r.mainRms, r.peak, p.getPressGr());
+        CHECK (r.finite && r.peak < 2.0, "effects at max misbehave (peak %.2f)", r.peak);
+        set (motstand::pid::killLow, 1.f); set (motstand::pid::killMid, 1.f); set (motstand::pid::killHigh, 1.f);
+        set (motstand::pid::pressAmt, 0.f);
+        run (p, 0.5);
+        auto k = run (p, 2.0);
+        std::printf ("KILL     all three bands killed: rms %.5f\n", k.mainRms);
+        CHECK (k.mainRms < 0.003, "kills leak (%.4f)", k.mainRms);
+    }
+
     std::printf (failures ? "\n%d FAILED\n" : "\nALL OK\n", failures);
     return failures ? 1 : 0;
 }
