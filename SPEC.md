@@ -35,10 +35,25 @@ Cymbalerna är 6-bit + ~32 kHz sample-and-hold som 909:ans billiga ROM. CH choka
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
-3. PluginProcessor: allt ihopkopplat, separata utgångar per instrument, oversampling
-4. GUI: slip-mätare, Nudge, tärningar per sektion, SV/EN-knapp
-5. CMake + Actions för Mac, Windows, Linux, licensnyckel
+3. ✅ PluginProcessor: allt ihopkopplat, separata utgångar per instrument, 2x oversampling på Smog
+4. GUI: steggrid per instrument, slip-mätare, Nudge, Smog-mätare, tärningar per sektion, SV/EN-knapp
+5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
+
+## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`
+- **Transport:** startar när DAW:en trycker play (första slaget landar direkt), tyst när den står still.
+  Utan DAW (standalone) går den på egen hand.
+- **TEMPO:** DAW = DAW:ens tempo är grundtempo, drift och jitter läggs ovanpå. EGET = eget BPM-reglage.
+- **JITTER MAX** 0–1,5 ms (sigma = 40 % av max), **DRIFT**, **NUDGE** (±1, automatiserbar),
+  **FYLLA** (hur hårt drunk walk rider), **DETROIT SMOG** + **SMOG TRÖSKEL**, **SEED**, **MASTER**.
+- **Per instrument:** TUNE, DECAY, TON, NIVÅ, LÄNGD (1–32 steg), TYST.
+- **Utgångar:** MIX (stereo) + en extra stereoutgång per instrument (av som standard).
+  Slås en på i DAW:en går den rösten dit torr, utan Smog, och lämnar MIX.
+- **MIDI in:** GM 909-map (36 kick, 38 virvel, 39 klapp, 37 kant, 41/45/48 toms, 42/46 hats, 51 ride).
+- **State:** parametrar + mönster sparas i projektet/presetet. Samma seed = exakt samma tagning.
+- Latens från oversamplingen rapporteras till DAW:en (3 samples i 48 kHz).
+- GUI just nu: JUCE:s enkla reglagelista. Riktiga panelen kommer i steg 4.
 
 ## Test
     g++ -std=c++17 -O2 -Isrc tests/core_test.cpp -o core_test && ./core_test
     g++ -std=c++17 -O2 -Isrc tests/render_demo.cpp -o render_demo && ./render_demo demo.wav
+    cmake -B build -DMOTSTAND_TESTS=ON && cmake --build build --target MotstandTest   # plugintest
