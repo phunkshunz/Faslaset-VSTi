@@ -28,15 +28,37 @@ utan en maskin med egen instabilitet som man måste kämpa mot.
 - Fler: spänningsfall (rail sag), asymmetrisk diodklippning, slew-utsmetning.
 - Mjuk övergång, klickar aldrig. Körs i 2x oversampling i pluginet.
 
-## Röster — `src/Voices.h`
-KICK, SNARE, CLAP, RIM, TOM L/M/H, CH, OH, RIDE.
-Cymbalerna är 6-bit + ~32 kHz sample-and-hold som 909:ans billiga ROM. CH chokar OH.
+## Röster — `src/Voices.h` (v2)
+- **KICK:** tvåstegs pitch-fall, triangel-VCO genom waveshaper som blir fetare med accent,
+  separat attackpuls + klick, VCA som håller öppet ~3 ms.
+- **VIRVEL:** två sinusbaserade kroppar + snappy brus. **KLAPP:** fyra smällar (0/9/18/28 ms) + rum.
+- **KANT:** dubbelping genom mättande brygga. **TOMS:** kropp + oharmonisk deltonsmod + stickbrus.
+- **HATS/RIDE:** 909-ROM. En bandbegränsad metallvåg räknas fram vid start (32 kHz, 6 bit) och
+  spelas med Hermite-interpolation + rekonstruktionsfilter. TUNE ändrar uppspelningstakten, som på 909.
+  Mätt: under -31 dB energi över 18 kHz, alltså inget digitalt skräp. CH chokar OH.
+- **Komponenttolerans:** varje seed ger maskinen egna små fel (±0,7 % tune, ±4 % decay).
+- **Accent** ändrar klangen (kickens form, virvelns brus), inte bara volymen.
+
+## VINKELSLIP — `src/Vinkelslip.h` (per kanal)
+LÄGE: DIOD, GERMANIUM, TEJP, VIKNING, LIKRIKTARE, ROM. DRIVE, MATNING (hårda slag distar mer), MIX.
+- 4x översampling (linjärfas halfband) + ADAA. Mätt mot vanlig distorsion vid extrem drive:
+  20–33 dB mindre skräp (DIOD -41, GERMANIUM -40, TEJP -52, VIKNING -36, LIKRIKTARE -39 dB).
+- Alla kanaler har samma fasta fördröjning (23 samples) även avslagna, så de ligger i fas.
+
+## ELNÄT
+50 Hz-brum med udda övertoner, som en dåligt jordad verkstad. Av som standard.
+
+## MIDI UT
+Varje steg skickas som GM 909-not på kanal 10 (30 ms långa), med drift och jitter inbakat.
+Spela in den i Bitwig, så får du Mills-timingen som MIDI. Kan stängas av (MIDI UT).
 
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
 3. ✅ PluginProcessor: allt ihopkopplat, separata utgångar per instrument, 2x oversampling på Smog
-4. GUI: steggrid per instrument, slip-mätare, Nudge, Smog-mätare, tärningar per sektion, SV/EN-knapp
+4a. ✅ Ljud v2: nya röster, VINKELSLIP, ELNÄT, MIDI ut
+4b. Panel i DOCKLANDS-stil: rostigt varvsstål, nitar, lysrörsgrönt. Strobe-ring (slip),
+    jogghjul (NUDGE), polymeter-ringar, Smog-visare, steggrid, tärningar per sektion, SV/EN
 5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
 
 ## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`
@@ -50,7 +72,7 @@ Cymbalerna är 6-bit + ~32 kHz sample-and-hold som 909:ans billiga ROM. CH choka
   Slås en på i DAW:en går den rösten dit torr, utan Smog, och lämnar MIX.
 - **MIDI in:** GM 909-map (36 kick, 38 virvel, 39 klapp, 37 kant, 41/45/48 toms, 42/46 hats, 51 ride).
 - **State:** parametrar + mönster sparas i projektet/presetet. Samma seed = exakt samma tagning.
-- Latens från oversamplingen rapporteras till DAW:en (3 samples i 48 kHz).
+- Latens (VINKELSLIP 23 + Smog-översampling 3 = 26 samples i 48 kHz) rapporteras till DAW:en.
 - GUI just nu: JUCE:s enkla reglagelista. Riktiga panelen kommer i steg 4.
 
 ## Test

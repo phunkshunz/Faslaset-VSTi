@@ -25,7 +25,11 @@ MotstandProcessor::MotstandProcessor()
                            apvts.getRawParameterValue (pid::inst (i, "tone")),
                            apvts.getRawParameterValue (pid::inst (i, "level")),
                            apvts.getRawParameterValue (pid::inst (i, "len")),
-                           apvts.getRawParameterValue (pid::inst (i, "mute")) };
+                           apvts.getRawParameterValue (pid::inst (i, "mute")),
+                           apvts.getRawParameterValue (pid::inst (i, "slipMode")),
+                           apvts.getRawParameterValue (pid::inst (i, "slipDrive")),
+                           apvts.getRawParameterValue (pid::inst (i, "slipFeed")),
+                           apvts.getRawParameterValue (pid::inst (i, "slipMix")) };
     }
     pTempoSrc = apvts.getRawParameterValue (pid::tempoSrc);
     pBpm      = apvts.getRawParameterValue (pid::bpm);
@@ -37,6 +41,8 @@ MotstandProcessor::MotstandProcessor()
     pSmogThr  = apvts.getRawParameterValue (pid::smogThr);
     pSeed     = apvts.getRawParameterValue (pid::seed);
     pMaster   = apvts.getRawParameterValue (pid::master);
+    pElnat    = apvts.getRawParameterValue (pid::elnat);
+    pMidiOut  = apvts.getRawParameterValue (pid::midiOut);
 
     std::array<std::array<uint8_t, kMaxSteps>, kNumInstruments> def {};
     defaultPattern (def);
@@ -66,8 +72,13 @@ void MotstandProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         2, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
     oversampler->initProcessing ((size_t) samplesPerBlock);
     smog.prepare (sr * 2.0);
-    setLatencySamples (juce::roundToInt (oversampler->getLatencyInSamples()));
+    for (auto& v : slip) v.prepare (sr);
+    elnat.prepare (sr);
+    // every channel goes through VINKELSLIP's fixed delay, the MIX also through Smog's oversampling
+    setLatencySamples (Vinkelslip::kLatency + juce::roundToInt (oversampler->getLatencyInSamples()));
     mixBuffer.setSize (2, samplesPerBlock);
+    midiOut.ensureSize (4096);
+    pendingOff.fill (0);
     lastSeed = -1;
     reseed();
     wasPlaying = false;
@@ -81,6 +92,7 @@ void MotstandProcessor::reseed()
     clock.prepare (sr, (uint64_t) seed * 0x9E3779B1ull);
     for (int i = 0; i < kNumInstruments; ++i)
         rider[(size_t) i].prepare (sr, (uint64_t) seed * 131u + (uint64_t) i);
+    kit.setTolerance ((uint64_t) seed * 0x2545F491ull);   // this machine's own "factory errors"
 }
 
 void MotstandProcessor::pullParameters()
@@ -94,7 +106,14 @@ void MotstandProcessor::pullParameters()
         p.tone  = q.tone->load();
         p.level = q.level->load();
         lanes[(size_t) i].length = juce::jlimit (1, kMaxSteps, (int) q.len->load());
+        auto& v = slip[(size_t) i];
+        v.mode    = juce::jlimit (0, kNumSlipModes - 1, (int) q.slipMode->load());
+        v.drive   = q.slipDrive->load();
+        v.matning = q.slipFeed->load();
+        v.mix     = q.slipMix->load();
     }
+    elnat.amount = pElnat->load();
+    sendMidi = pMidiOut->load() > 0.5f;
     const float jitterMax = pJitter->load();
     clock.jitterMaxMs   = jitterMax;
     clock.jitterSigmaMs = jitterMax * 0.4;   // 1.5 ms max -> 0.6 ms sigma
@@ -105,16 +124,18 @@ void MotstandProcessor::pullParameters()
     masterGain          = juce::Decibels::decibelsToGain (pMaster->load());
 }
 
-void MotstandProcessor::triggerVoice (int inst, float vel01, int sampleOffset)
+bool MotstandProcessor::triggerVoice (int inst, float vel01, int sampleOffset)
 {
-    if (ip[(size_t) inst].mute->load() > 0.5f) return;
+    if (ip[(size_t) inst].mute->load() > 0.5f) return false;
     const float amt = kRideBase[inst] * pRide->load();
     auto& r = rider[(size_t) inst];
     const float decayMod = r.onTrigger() * amt;
     const float tuneMod  = r.onTrigger() * amt;
     kit.trigger (inst, vel01, tuneMod, decayMod);
+    slip[(size_t) inst].onTrigger (vel01);
     if (! toAux[(size_t) inst])
         smog.addTransient (sampleOffset * 2, vel01);   // smog runs at 2x
+    return true;
 }
 
 void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -180,6 +201,18 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         }
     }
 
+    midiOut.clear();
+    const int offLen = juce::jmax (1, (int) (0.03 * sr));     // 30 ms notes
+    auto sendOn = [&] (int inst, uint8_t vel, int s)
+    {
+        if (! sendMidi) return;
+        const int note = kInstNote[inst];
+        if (pendingOff[(size_t) inst] > 0)                     // retrigger: close the old one first
+            midiOut.addEvent (juce::MidiMessage::noteOff (10, note), s);
+        midiOut.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) juce::jlimit (1, 127, (int) vel)), s);
+        pendingOff[(size_t) inst] = offLen;
+    };
+
     // ---- render ----
     float* mixL = mixBuffer.getWritePointer (0);
     float* mixR = mixBuffer.getWritePointer (1);
@@ -200,7 +233,8 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             for (int i = 0; i < kNumInstruments; ++i)
             {
                 const uint8_t v = getStep (i, lanes[(size_t) i].positionAt (step));
-                if (v) triggerVoice (i, v / 127.f, s);
+                if (v && triggerVoice (i, v / 127.f, s))
+                    sendOn (i, v, s);                          // MIDI out carries the Mills timing
             }
             stepNow.store (step);
             ++e;
@@ -211,8 +245,17 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             ++mi;
         }
 
+        // note-offs
+        for (int i = 0; i < kNumInstruments; ++i)
+            if (pendingOff[(size_t) i] > 0 && --pendingOff[(size_t) i] == 0)
+                midiOut.addEvent (juce::MidiMessage::noteOff (10, kInstNote[i]), s);
+
         float o[kNumInstruments];
         kit.process (o);
+        for (int i = 0; i < kNumInstruments; ++i)
+            o[i] = slip[(size_t) i].process (o[i]);           // VINKELSLIP (fixed latency on every channel)
+        const float hum = elnat.process();
+        mixL[s] += hum; mixR[s] += hum;
         for (int i = 0; i < kNumInstruments; ++i)
         {
             const float l = o[i] * gL[(size_t) i], r = o[i] * gR[(size_t) i];
@@ -233,6 +276,12 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     for (int i = 0; i < kNumInstruments; ++i)
         if (toAux[(size_t) i])
             getBusBuffer (buffer, false, 1 + i).applyGain (masterGain);
+
+    // transport stopped or MIDI out switched off: close any hanging notes
+    if (! playing || ! sendMidi)
+        for (int i = 0; i < kNumInstruments; ++i)
+            if (pendingOff[(size_t) i] > 0) { pendingOff[(size_t) i] = 0; midiOut.addEvent (juce::MidiMessage::noteOff (10, kInstNote[i]), n - 1); }
+    midi.swapWith (midiOut);
 
     slipMs.store ((float) clock.slipMs());
     collapse.store (smog.currentCollapse());

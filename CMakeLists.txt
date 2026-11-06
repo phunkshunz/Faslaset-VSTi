@@ -18,7 +18,8 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
-# MOTSTÅND gör allt ljud själv (909-syntes). MIDI-in triggar instrumenten (GM 909-map).
+# MOTSTÅND gör allt ljud själv (909-syntes). MIDI in triggar instrumenten (GM 909-map),
+# MIDI ut skickar varje steg som not, med drift och jitter inbakat.
 set(PHZ_EXTRA_FORMATS "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(PHZ_EXTRA_FORMATS LV2)
@@ -31,7 +32,7 @@ juce_add_plugin(Motstand
     PLUGIN_CODE Mtsd
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT FALSE
+    NEEDS_MIDI_OUTPUT TRUE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE

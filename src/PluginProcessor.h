@@ -5,6 +5,7 @@
 #include "MotstandCore.h"
 #include "Voices.h"
 #include "Params.h"
+#include "Vinkelslip.h"
 
 class MotstandProcessor : public juce::AudioProcessor
 {
@@ -23,7 +24,7 @@ public:
 
     const juce::String getName() const override { return "MOTSTAND"; }
     bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 3.0; }
 
@@ -53,7 +54,7 @@ private:
     static BusesProperties makeBuses();
     void pullParameters();
     void reseed();
-    void triggerVoice (int inst, float vel01, int sampleOffset);
+    bool triggerVoice (int inst, float vel01, int sampleOffset);
 
     std::array<std::array<std::atomic<uint8_t>, motstand::kMaxSteps>, motstand::kNumInstruments> cells;
 
@@ -62,7 +63,14 @@ private:
     motstand::DetroitSmog smog;
     std::array<motstand::DrunkRider, motstand::kNumInstruments> rider;
     std::array<motstand::PolyTrack, motstand::kNumInstruments> lanes;
+    std::array<motstand::Vinkelslip, motstand::kNumInstruments> slip;
+    motstand::Elnat elnat;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
+
+    // MIDI out: note-offs waiting to be sent (one per instrument is enough)
+    std::array<int, motstand::kNumInstruments> pendingOff {};   // samples left, 0 = none
+    juce::MidiBuffer midiOut;
+    bool sendMidi = true;
 
     juce::AudioBuffer<float> mixBuffer;
     std::array<bool, motstand::kNumInstruments> toAux {};   // routed to its own output this block?
@@ -70,9 +78,10 @@ private:
 
     // cached parameter pointers
     struct InstParams { std::atomic<float>* tune; std::atomic<float>* decay; std::atomic<float>* tone;
-                        std::atomic<float>* level; std::atomic<float>* len; std::atomic<float>* mute; };
+                        std::atomic<float>* level; std::atomic<float>* len; std::atomic<float>* mute;
+                        std::atomic<float>* slipMode; std::atomic<float>* slipDrive; std::atomic<float>* slipFeed; std::atomic<float>* slipMix; };
     std::array<InstParams, motstand::kNumInstruments> ip {};
-    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster;
+    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut;
 
     double sr = 48000.0;
     bool wasPlaying = false;

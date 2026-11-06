@@ -1,6 +1,6 @@
 name: Testa MOTSTÅND
 
-# Steg 3 av 5: motorn testas på varje push (ca 1 min).
+# Steg 4a av 5: motorn testas på varje push (ca 1 min).
 # Plugintestet (bygger med JUCE, ca 5 min) körs bara när pluginkoden ändras.
 # Mac-, Windows- och Linux-zippar för försäljning läggs till i steg 5.
 
@@ -24,13 +24,14 @@ jobs:
       - name: Rendera demo
         run: |
           g++ -std=c++17 -O2 -Isrc tests/render_demo.cpp -o render_demo
-          ./render_demo MOTSTAND-demo.wav
+          ./render_demo MOTSTAND-demo-ren.wav
+          ./render_demo MOTSTAND-demo-vinkelslip.wav slip
 
       - name: Ladda upp demon
         uses: actions/upload-artifact@v4
         with:
           name: MOTSTAND-demo
-          path: MOTSTAND-demo.wav
+          path: MOTSTAND-demo-*.wav
           retention-days: 14
 
   plugin:

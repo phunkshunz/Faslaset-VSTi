@@ -1,26 +1,30 @@
 // =====================================================================
-//  MASKINHALLEN : MOTSTÅND  —  909-style voices (step 2)
+//  MASKINHALLEN : MOTSTÅND  —  909-style voices (v2, step 4a)
 //  Phunkshunz AUDIO
 //
-//  Pure C++17, header-only, real-time safe (no allocation, no locks).
+//  Real-time safe in process()/trigger(). The cymbal ROMs are built
+//  once (static, on first use) outside the audio callback.
 //
-//  Ten voices, modelled on how the TR-909 makes sound:
-//    KICK          sine + pitch drop + click, soft-shaped like the 909 VCA
-//    SNARE         two tuned oscillators + noise ("snappy")
-//    CLAP          bandpassed noise, three fast bursts + tail
-//    RIM           two short pings, very dry
-//    TOM L/M/H     sine with pitch drop + a little noise
-//    CH / OH       six metallic squares -> 6-bit quantised (909 hats were
-//    RIDE          6-bit samples) -> VCA envelope. CH chokes OH.
+//    KICK        two-stage pitch drop, triangle VCO through a waveshaper
+//                that fattens with accent, separate attack pulse + click
+//    SNARE       two sine-based tuned bodies + snappy noise
+//    CLAP        four bursts (0/9/18/28 ms) + bandpassed room tail
+//    RIM         two short pings through a saturating bridge
+//    TOM L/M/H   sine body + inharmonic partial + stick noise
+//    CH/OH/RIDE  909-style ROM: a band-limited metallic recording, built
+//                at 32 kHz and crushed to 6 bits, played back with
+//                interpolation and a reconstruction filter. Tune changes
+//                the playback rate, exactly like the 909's tune knob.
 //
-//  Each trigger takes tuneMod/decayMod (-1..1) from the DrunkRider,
-//  so no two hits are identical.
+//  Everything is band-limited by construction (sines, soft-shaped
+//  triangles, ROMs), so no aliasing hash in the top end.
 // =====================================================================
 #pragma once
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <vector>
 
 namespace motstand {
 
@@ -67,9 +71,16 @@ struct Svf {
     void reset() { ic1 = ic2 = 0.f; }
 };
 
-// Exponential decay with time constant in seconds
+struct OnePole {
+    float a = 1.f, z = 0.f;
+    void setLP(float hz, double sr) { a = 1.f - std::exp(-kTau * std::min(hz, (float)(sr * 0.49)) / (float)sr); }
+    float lp(float x) { z += a * (x - z); return z; }
+    float hp(float x) { return x - lp(x); }
+    void reset() { z = 0.f; }
+};
+
 inline float decayCoef(float seconds, double sr) {
-    return std::exp(-1.f / (std::max(0.0005f, seconds) * (float)sr));
+    return std::exp(-1.f / (std::max(0.0003f, seconds) * (float)sr));
 }
 
 // 909-ish accent curve: soft hits are clearly softer, accents push
@@ -85,9 +96,12 @@ struct VoiceParams {
     float decay = 0.5f;
     float tone  = 0.5f;   // voice-specific colour (attack, snappy, ...)
     float level = 0.8f;
+    // "component tolerance": set once per seed, never by the user
+    float tolTune  = 1.f;
+    float tolDecay = 1.f;
 };
 
-// How much the DrunkRider may move a hit at full RIDE amount
+// How much the DrunkRider may move a hit at full amount
 constexpr float kRideTuneSemis = 0.25f;   // ±25 cents
 constexpr float kRideDecayPct  = 0.08f;   // ±8 % decay
 
@@ -97,33 +111,51 @@ constexpr float kRideDecayPct  = 0.08f;   // ±8 % decay
 struct Kick {
     VoiceParams p;
     double sr = 48000;
-    float phase = 0, freq = 50, amp = 0, ampC = 0, pEnv = 0, pC = 0;
-    float click = 0, clickC = 0, gain = 0;
-    Svf clickF; Noise n;
+    float phase = 0, base = 50, amp = 0, ampC = 0;
+    float e1 = 0, e1C = 0, e2 = 0, e2C = 0;     // two-stage pitch envelope
+    float pulse = 0, pulseC = 0, click = 0, clickC = 0;
+    float shapeK = 1.5f, shapeNorm = 1.f, gain = 0, hold = 0;
+    int   holdN = 0;
+    Svf clickF; OnePole out; Noise n;
 
-    void prepare(double s) { sr = s; clickF.set(3500, 0.7f, sr); n.seed(0x909A); }
+    void prepare(double s) {
+        sr = s; clickF.set(2600, 0.9f, sr); out.setLP(9000, sr); n.seed(0x909A);
+        amp = 0; pulse = click = 0;
+    }
 
     void trigger(float vel, float tuneMod, float decayMod) {
-        freq  = (42.f + 24.f * p.tune) * semis(tuneMod * kRideTuneSemis);
-        const float dec = (0.12f + 0.9f * p.decay * p.decay) * (1.f + decayMod * kRideDecayPct);
+        base = (38.f + 30.f * p.tune) * p.tolTune * semis(tuneMod * kRideTuneSemis);
+        const float dec = (0.10f + 1.2f * p.decay * p.decay) * p.tolDecay * (1.f + decayMod * kRideDecayPct)
+                          * (1.f + 0.15f * vel);                   // accent rings a bit longer
         ampC  = decayCoef(dec, sr);
-        pC    = decayCoef(0.012f + 0.02f * (1.f - p.tone), sr);
-        clickC= decayCoef(0.0015f, sr);
-        amp = 1.f; pEnv = 1.f; click = 0.4f + 0.6f * p.tone;
-        phase = 0.25f;                     // start on the peak: the 909 thump
-        gain  = velGain(vel) * p.level;
+        e1C   = decayCoef(0.004f + 0.004f * (1.f - p.tone), sr);   // fast snap
+        e2C   = decayCoef(0.035f + 0.03f * (1.f - p.tone), sr);    // slower settle
+        pulseC= decayCoef(0.0004f, sr);
+        clickC= decayCoef(0.0025f, sr);
+        amp = 1.f; e1 = 1.f; e2 = 1.f;
+        pulse = 0.5f + 0.5f * p.tone;
+        click = 0.25f + 0.55f * p.tone;
+        phase = 0.f;
+        holdN = (int)(0.003 * sr);                                 // VCA holds ~3 ms open
+        shapeK = 1.2f + 2.2f * vel;                                // accent fattens the shape
+        shapeNorm = 1.f / std::tanh(shapeK);
+        gain = velGain(vel) * p.level;
     }
 
     float process() {
-        if (amp < 1e-5f && click < 1e-5f) return 0.f;
-        const float f = freq * (1.f + 3.5f * pEnv);   // ~2 octaves of drop
+        if (amp < 1e-5f && click < 1e-5f && pulse < 1e-5f) return 0.f;
+        const float f = base * (1.f + 3.0f * e1 + 0.9f * e2);
         phase += f / (float)sr; phase -= std::floor(phase);
-        float body = std::sin(kTau * phase) * amp;
-        body = std::tanh(body * 1.6f) / std::tanh(1.6f); // 909 waveshaping
+        // triangle VCO, inverted so the hit starts on the positive peak (the 909 thump),
+        // then soft-shaped toward a sine; accent pushes it squarer and fatter
+        const float tri = 1.f - 4.f * std::fabs(phase - 0.5f);
+        const float body = std::tanh(shapeK * -tri) * shapeNorm * amp;
         clickF.tick(n.next());
-        const float c = clickF.bp * click * 0.6f;
-        amp *= ampC; pEnv *= pC; click *= clickC;
-        return (body + c) * gain;
+        const float att = pulse + clickF.bp * click;
+        const float y = out.lp(body * 0.82f + att * 0.42f);
+        if (holdN > 0) --holdN; else amp *= ampC;
+        e1 *= e1C; e2 *= e2C; pulse *= pulseC; click *= clickC;
+        return y * gain;
     }
 };
 
@@ -134,63 +166,76 @@ struct Snare {
     VoiceParams p;
     double sr = 48000;
     float ph1 = 0, ph2 = 0, f1 = 185, f2 = 330;
-    float toneEnv = 0, toneC = 0, noiseEnv = 0, noiseC = 0, pEnv = 0, pC = 0, gain = 0;
-    Svf hp, lp; Noise n;
+    float b1 = 0, b1C = 0, b2 = 0, b2C = 0, noiseEnv = 0, noiseC = 0, pEnv = 0, pC = 0, gain = 0, vel = 1;
+    Svf hp, lp; OnePole air; Noise n;
 
     void prepare(double s) {
         sr = s; n.seed(0x5EA7);
-        hp.set(1800, 0.7f, sr); lp.set(9000, 0.7f, sr);
+        hp.set(1100, 0.6f, sr); lp.set(8500, 0.6f, sr); air.setLP(14000, sr);
     }
-    void trigger(float vel, float tuneMod, float decayMod) {
-        const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis);
-        f1 = 180.f * t; f2 = 330.f * t;
-        const float dm = 1.f + decayMod * kRideDecayPct;
-        toneC  = decayCoef(0.045f * dm, sr);
-        noiseC = decayCoef((0.06f + 0.25f * p.decay) * dm, sr);
-        pC     = decayCoef(0.008f, sr);
-        toneEnv = 1.f; noiseEnv = 1.f; pEnv = 1.f;
-        gain = velGain(vel) * p.level;
+    void trigger(float v, float tuneMod, float decayMod) {
+        vel = v;
+        const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis) * p.tolTune;
+        f1 = 178.f * t; f2 = 331.f * t;
+        const float dm = (1.f + decayMod * kRideDecayPct) * p.tolDecay;
+        b1C = decayCoef(0.060f * dm, sr);
+        b2C = decayCoef(0.035f * dm, sr);
+        noiseC = decayCoef((0.05f + 0.28f * p.decay) * dm, sr);
+        pC = decayCoef(0.006f, sr);
+        b1 = b2 = noiseEnv = pEnv = 1.f;
+        ph1 = 0.f; ph2 = 0.13f;
+        gain = velGain(v) * p.level;
     }
     float process() {
-        if (toneEnv < 1e-5f && noiseEnv < 1e-5f) return 0.f;
-        const float bend = 1.f + 0.4f * pEnv;
+        if (b1 < 1e-5f && noiseEnv < 1e-5f) return 0.f;
+        const float bend = 1.f + 0.35f * pEnv;
         ph1 += f1 * bend / (float)sr; ph1 -= std::floor(ph1);
         ph2 += f2 * bend / (float)sr; ph2 -= std::floor(ph2);
-        // 909 snare oscillators are closer to triangles than sines
-        auto tri = [](float ph) { return 4.f * std::fabs(ph - 0.5f) - 1.f; };
-        const float body = (tri(ph1) * 0.6f + tri(ph2) * 0.4f) * toneEnv;
+        const float s1 = std::sin(kTau * ph1), s2 = std::sin(kTau * ph2);
+        // a touch of 2nd harmonic: the 909 bodies are slightly squashed sines
+        const float body = (s1 + 0.18f * s1 * s1) * b1 * 0.6f + (s2 + 0.12f * s2 * s2) * b2 * 0.4f;
         hp.tick(n.next()); lp.tick(hp.hp);
-        const float snap = lp.lp * noiseEnv;
-        const float mix = body * (1.f - 0.6f * p.tone) + snap * (0.4f + 0.9f * p.tone);
-        toneEnv *= toneC; noiseEnv *= noiseC; pEnv *= pC;
-        return mix * gain;
+        const float snap = air.lp(lp.lp) * noiseEnv * (0.8f + 0.4f * vel);
+        const float mix = body * (1.f - 0.55f * p.tone) + snap * (0.45f + 1.0f * p.tone);
+        b1 *= b1C; b2 *= b2C; noiseEnv *= noiseC; pEnv *= pC;
+        return std::tanh(mix * 1.2f) * gain;
     }
 };
 
 // ---------------------------------------------------------------------
-//  CLAP  (three bursts 11 ms apart, then the tail)
+//  CLAP  (four bursts, then the room)
 // ---------------------------------------------------------------------
 struct Clap {
     VoiceParams p;
     double sr = 48000;
-    int   counter = 1 << 30, burstLen = 0;
+    std::array<int, 4> burstAt{};
+    int counter = 1 << 30, tailAt = 0, nextBurst = 4;
     float burstEnv = 0, burstC = 0, tail = 0, tailC = 0, gain = 0;
-    Svf bp; Noise n;
+    Svf bp, room; Noise n;
 
-    void prepare(double s) { sr = s; n.seed(0xC1A9); burstLen = (int)(0.011 * sr); }
+    void prepare(double s) {
+        sr = s; n.seed(0xC1A9);
+        burstAt = { 0, (int)(0.009 * sr), (int)(0.018 * sr), (int)(0.028 * sr) };
+        tailAt = burstAt[3];
+    }
     void trigger(float vel, float tuneMod, float decayMod) {
-        bp.set(1000.f * semis((p.tune - 0.5f) * 10.f + tuneMod * kRideTuneSemis), 1.4f, sr);
-        burstC = decayCoef(0.0035f, sr);
-        tailC  = decayCoef((0.08f + 0.35f * p.decay) * (1.f + decayMod * kRideDecayPct), sr);
-        counter = 0; burstEnv = 1.f; tail = 0.f;
-        gain = velGain(vel) * p.level * 1.6f;
+        const float t = semis((p.tune - 0.5f) * 10.f + tuneMod * kRideTuneSemis) * p.tolTune;
+        bp.set(1150.f * t, 1.3f, sr);
+        room.set(900.f * t, 0.7f, sr);
+        burstC = decayCoef(0.0032f, sr);
+        tailC  = decayCoef((0.07f + 0.4f * p.decay) * (1.f + decayMod * kRideDecayPct) * p.tolDecay, sr);
+        counter = 0; nextBurst = 0; burstEnv = 0.f; tail = 0.f;
+        gain = velGain(vel) * p.level * 1.4f;
     }
     float process() {
-        if (counter > burstLen * 3 && tail < 1e-5f) return 0.f;
-        if (counter < burstLen * 3 && counter % burstLen == 0) burstEnv = 1.f;
-        if (counter == burstLen * 3) tail = 0.7f;
-        bp.tick(n.next());
-        const float out = bp.bp * (burstEnv + tail);
+        if (counter > tailAt && tail < 1e-5f) return 0.f;
+        if (nextBurst < 4 && counter == burstAt[(size_t)nextBurst]) {
+            burstEnv = 1.f - 0.1f * (float)nextBurst; ++nextBurst;
+        }
+        if (counter == tailAt) tail = 0.75f;
+        const float w = n.next();
+        bp.tick(w); room.tick(w);
+        const float out = bp.bp * burstEnv + (bp.bp * 0.6f + room.bp * 0.4f) * tail;
         burstEnv *= burstC; tail *= tailC; ++counter;
         return out * gain;
     }
@@ -202,122 +247,169 @@ struct Clap {
 struct Rim {
     VoiceParams p;
     double sr = 48000;
-    float ph1 = 0, ph2 = 0, f1 = 500, f2 = 1700, env = 0, envC = 0, gain = 0;
-    Svf hp;
+    float ph1 = 0, ph2 = 0, f1 = 500, f2 = 1700, env = 0, envC = 0, env2 = 0, env2C = 0, gain = 0;
+    Svf hp; Noise n;
 
-    void prepare(double s) { sr = s; hp.set(350, 0.7f, sr); }
+    void prepare(double s) { sr = s; hp.set(380, 0.7f, sr); n.seed(0x219u); }
     void trigger(float vel, float tuneMod, float decayMod) {
-        const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis);
-        f1 = 500.f * t; f2 = 1700.f * t;
-        envC = decayCoef((0.006f + 0.02f * p.decay) * (1.f + decayMod * kRideDecayPct), sr);
-        env = 1.f; ph1 = ph2 = 0.f;
-        gain = velGain(vel) * p.level;
+        const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis) * p.tolTune;
+        f1 = 480.f * t; f2 = 1690.f * t;
+        const float d = (0.006f + 0.025f * p.decay) * (1.f + decayMod * kRideDecayPct) * p.tolDecay;
+        envC = decayCoef(d, sr); env2C = decayCoef(d * 0.5f, sr);
+        env = env2 = 1.f; ph1 = ph2 = 0.f;
+        gain = velGain(vel) * p.level * 0.7f;
     }
     float process() {
         if (env < 1e-5f) return 0.f;
         ph1 += f1 / (float)sr; ph1 -= std::floor(ph1);
         ph2 += f2 / (float)sr; ph2 -= std::floor(ph2);
-        float x = (std::sin(kTau * ph1) + 0.8f * std::sin(kTau * ph2)) * env;
-        hp.tick(std::tanh(x * 2.f));
-        env *= envC;
-        return hp.hp * gain * 0.7f;
+        const float x = std::sin(kTau * ph1) * env + 0.8f * std::sin(kTau * ph2) * env2 + n.next() * env2 * 0.08f * p.tone;
+        hp.tick(std::tanh(x * (1.6f + p.tone)));
+        env *= envC; env2 *= env2C;
+        return hp.hp * gain;
     }
 };
 
 // ---------------------------------------------------------------------
-//  TOM  (base frequency set per instance: low / mid / high)
+//  TOM  (base frequency set per instance)
 // ---------------------------------------------------------------------
 struct Tom {
     VoiceParams p;
     double sr = 48000;
     float baseHz = 100;
-    float phase = 0, freq = 100, amp = 0, ampC = 0, pEnv = 0, pC = 0;
+    float phase = 0, ph2 = 0, freq = 100, amp = 0, ampC = 0, a2 = 0, a2C = 0, pEnv = 0, pC = 0;
     float nEnv = 0, nC = 0, gain = 0;
     Svf nf; Noise n;
 
-    void prepare(double s, float base, uint32_t seed) {
-        sr = s; baseHz = base; n.seed(seed);
-    }
+    void prepare(double s, float base, uint32_t seed) { sr = s; baseHz = base; n.seed(seed); }
     void trigger(float vel, float tuneMod, float decayMod) {
-        freq = baseHz * semis((p.tune - 0.5f) * 12.f + tuneMod * kRideTuneSemis);
-        ampC = decayCoef((0.12f + 0.6f * p.decay) * (1.f + decayMod * kRideDecayPct), sr);
-        pC   = decayCoef(0.05f, sr);
-        nC   = decayCoef(0.02f, sr);
-        nf.set(freq * 4.f, 0.8f, sr);
-        amp = 1.f; pEnv = 1.f; nEnv = 0.3f * p.tone; phase = 0.f;
+        freq = baseHz * semis((p.tune - 0.5f) * 12.f + tuneMod * kRideTuneSemis) * p.tolTune;
+        const float d = (0.12f + 0.7f * p.decay) * (1.f + decayMod * kRideDecayPct) * p.tolDecay;
+        ampC = decayCoef(d, sr); a2C = decayCoef(d * 0.3f, sr);
+        pC   = decayCoef(0.045f, sr);
+        nC   = decayCoef(0.012f, sr);
+        nf.set(freq * 5.f, 0.8f, sr);
+        amp = 1.f; a2 = 0.28f; pEnv = 1.f; nEnv = 0.15f + 0.35f * p.tone; phase = ph2 = 0.f;
         gain = velGain(vel) * p.level;
     }
     float process() {
         if (amp < 1e-5f) return 0.f;
-        phase += freq * (1.f + 0.6f * pEnv) / (float)sr; phase -= std::floor(phase);
+        const float f = freq * (1.f + 0.55f * pEnv);
+        phase += f / (float)sr; phase -= std::floor(phase);
+        ph2   += f * 1.48f / (float)sr; ph2 -= std::floor(ph2);   // inharmonic head mode
         nf.tick(n.next());
-        const float out = std::sin(kTau * phase) * amp + nf.lp * nEnv;
-        amp *= ampC; pEnv *= pC; nEnv *= nC;
-        return out * gain;
+        const float out = std::sin(kTau * phase) * amp + std::sin(kTau * ph2) * a2 + nf.lp * nEnv;
+        amp *= ampC; a2 *= a2C; pEnv *= pC; nEnv *= nC;
+        return std::tanh(out * 1.1f) * gain;
     }
 };
 
 // ---------------------------------------------------------------------
-//  METAL  (closed hat, open hat, ride)
-//  Six detuned squares -> bandpass -> 6-bit quantise + ~32 kHz
-//  sample-and-hold (the 909's cheap cymbal ROM) -> VCA envelope.
+//  CYMBAL ROM — built once, shared by every instance.
+//  Band-limited additive squares (no aliasing at all), a stick-noise
+//  attack, the ROM's own natural decay, then crushed to 6 bits.
 // ---------------------------------------------------------------------
-struct Metal {
-    VoiceParams p;
-    double sr = 48000;
-    std::array<float, 6> ratios{ 1.f, 1.4826f, 1.8003f, 2.5461f, 2.6304f, 3.8968f };
-    std::array<float, 6> ph{};
-    float baseHz = 205.3f, filterHz = 8000.f, q = 0.9f;
-    float minDecay = 0.02f, maxDecay = 0.4f;
-    float env = 0, envC = 0, gain = 0, held = 0, holdPhase = 0, holdStep = 1;
-    float chokeC = 0; bool choking = false;
-    Svf bp, hp;
+struct CymbalRom {
+    static constexpr double kRate = 32000.0;
+    std::vector<float> data;
 
-    void prepare(double s, float base, float filt, float qv, float dMin, float dMax) {
-        sr = s; baseHz = base; filterHz = filt; q = qv; minDecay = dMin; maxDecay = dMax;
-        holdStep = (float)(32000.0 / sr);
-        hp.set(filt * 0.75f, 0.7f, sr);
-        chokeC = decayCoef(0.004f, sr);
-        for (size_t i = 0; i < ph.size(); ++i) ph[i] = 0.13f * (float)i;
+    static CymbalRom build(const std::array<float, 6>& freqs, float bpHz, float q, float hpHz,
+                           float seconds, float naturalTau, uint32_t seed) {
+        CymbalRom r;
+        const size_t n = (size_t)(seconds * kRate);
+        r.data.assign(n, 0.f);
+        Noise nz; nz.seed(seed);
+        std::array<float, 6> ph{};
+        for (size_t i = 0; i < 6; ++i) ph[i] = (float)(nz.next() * 0.5 + 0.5);
+        const float nyq = (float)(kRate * 0.45);
+        // additive, band-limited squares
+        for (size_t o = 0; o < 6; ++o) {
+            const float f = freqs[o];
+            for (int k = 1; (float)k * f < nyq; k += 2) {
+                const float a = 4.f / (kPi * (float)k) / 6.f;
+                const double w = kTau * (double)k * f / kRate;
+                const double p0 = kTau * (double)k * ph[o];
+                // rotate a phasor instead of calling sin() per sample
+                double c = std::cos(w), s = std::sin(w), re = std::cos(p0), im = std::sin(p0);
+                for (size_t i = 0; i < n; ++i) {
+                    r.data[i] += a * (float)im;
+                    const double nre = re * c - im * s; im = re * s + im * c; re = nre;
+                }
+            }
+        }
+        Svf bp, hp, stick; bp.set(bpHz, q, kRate); hp.set(hpHz, 0.7f, kRate); stick.set(bpHz * 1.2f, 0.8f, kRate);
+        const float dc = decayCoef(naturalTau, kRate), sc = decayCoef(0.004f, kRate);
+        float env = 1.f, se = 0.6f, peak = 1e-9f;
+        for (size_t i = 0; i < n; ++i) {
+            bp.tick(r.data[i]); hp.tick(bp.bp);
+            stick.tick(nz.next());
+            r.data[i] = (hp.hp * 3.f + stick.bp * se) * env;
+            env *= dc; se *= sc;
+            peak = std::max(peak, std::fabs(r.data[i]));
+        }
+        for (auto& x : r.data) x = std::round(x / peak * 31.f) / 31.f;   // 6-bit ROM
+        return r;
+    }
+
+    static const CymbalRom& hat() {
+        static const CymbalRom r = build({ 205.3f, 304.4f, 369.6f, 522.7f, 540.f, 800.f }, 8800.f, 0.9f, 6500.f, 1.4f, 0.32f, 0xA7u);
+        return r;
+    }
+    static const CymbalRom& ride() {
+        static const CymbalRom r = build({ 151.f, 202.5f, 264.4f, 329.6f, 436.0f, 515.3f }, 5600.f, 0.55f, 3200.f, 3.5f, 1.1f, 0xB1Du);
+        return r;
+    }
+};
+
+// ---------------------------------------------------------------------
+//  ROM VOICE  (closed hat, open hat, ride)
+// ---------------------------------------------------------------------
+struct RomVoice {
+    VoiceParams p;
+    const CymbalRom* rom = nullptr;
+    double sr = 48000, pos = 1e12, step = 1;
+    float minDecay = 0.02f, maxDecay = 0.4f;
+    float env = 0, envC = 0, gain = 0, chokeC = 0, reconHz = 12000.f;
+    bool choking = false;
+    Svf recon; OnePole dcb;
+
+    void prepare(double s, const CymbalRom& r, float dMin, float dMax, float recon_) {
+        sr = s; rom = &r; minDecay = dMin; maxDecay = dMax; reconHz = recon_;
+        chokeC = decayCoef(0.003f, sr);
+        dcb.setLP(20.f, sr);
+        pos = 1e12;
     }
     void trigger(float vel, float tuneMod, float decayMod) {
-        const float t = semis((p.tune - 0.5f) * 6.f + tuneMod * kRideTuneSemis);
-        bp.set(filterHz * t * (0.8f + 0.4f * p.tone), q, sr);
-        const float d = minDecay + (maxDecay - minDecay) * p.decay * p.decay;
+        const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis) * p.tolTune;
+        step = CymbalRom::kRate / sr * t;
+        recon.set(std::min(reconHz * t * (0.7f + 0.6f * p.tone), (float)(sr * 0.45)), 0.6f, sr);
+        const float d = (minDecay + (maxDecay - minDecay) * p.decay * p.decay) * p.tolDecay;
         envC = decayCoef(d * (1.f + decayMod * kRideDecayPct), sr);
-        env = 1.f; choking = false;
+        env = 1.f; choking = false; pos = 0.0;
         gain = velGain(vel) * p.level;
-        tuneScale = t;
     }
     void choke() { choking = true; }
     float process() {
-        if (env < 1e-5f) return 0.f;
-        float sq = 0.f;
-        for (size_t i = 0; i < ph.size(); ++i) {
-            ph[i] += baseHz * ratios[i] * tuneScale / (float)sr;
-            ph[i] -= std::floor(ph[i]);
-            sq += ph[i] < 0.5f ? 1.f : -1.f;
-        }
-        bp.tick(sq * (1.f / 6.f));
-        hp.tick(bp.bp);
-        // cheap ROM: sample-and-hold at ~32 kHz, then 6-bit quantise
-        holdPhase += holdStep;
-        if (holdPhase >= 1.f) {
-            holdPhase -= 1.f;
-            const float x = std::clamp(hp.hp * 3.f, -1.f, 1.f);
-            held = std::round(x * 31.f) / 31.f;
-        }
-        const float out = held * env;
+        if (!rom || env < 1e-5f) return 0.f;
+        const size_t n = rom->data.size();
+        if (pos >= (double)(n - 3)) { env = 0.f; return 0.f; }
+        // 4-point Hermite interpolation through the 6-bit ROM
+        const size_t i = (size_t)pos; const float fr = (float)(pos - (double)i);
+        const float* d = rom->data.data();
+        const float xm1 = i ? d[i - 1] : d[i], x0 = d[i], x1 = d[i + 1], x2 = d[i + 2];
+        const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.f * x1 - 0.5f * x2;
+        const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+        const float s = ((c3 * fr + c2) * fr + c1) * fr + x0;
+        pos += step;
+        recon.tick(s);
+        const float y = dcb.hp(recon.lp) * env;
         env *= choking ? chokeC : envC;
-        return out * gain;
+        return y * gain;
     }
-private:
-    float tuneScale = 1.f;
 };
 
 // ---------------------------------------------------------------------
-//  Kit — all ten voices. process() writes one sample per instrument,
-//  so the processor can send each one to its own output bus.
+//  Kit — all ten voices
 // ---------------------------------------------------------------------
 struct Kit {
     Kick  kick;
@@ -325,16 +417,14 @@ struct Kit {
     Clap  clap;
     Rim   rim;
     Tom   tomLo, tomMid, tomHi;
-    Metal ch, oh, ride;
+    RomVoice ch, oh, ride;
 
     void prepare(double sr) {
         kick.prepare(sr); snare.prepare(sr); clap.prepare(sr); rim.prepare(sr);
         tomLo.prepare(sr, 82.f, 0x701u); tomMid.prepare(sr, 123.f, 0x702u); tomHi.prepare(sr, 174.f, 0x703u);
-        //            base Hz  filter  Q     min dec  max dec
-        ch.prepare  (sr, 205.3f, 9000.f, 0.9f, 0.015f, 0.12f);
-        oh.prepare  (sr, 205.3f, 8500.f, 0.9f, 0.12f,  0.9f);
-        ride.prepare(sr, 151.0f, 5200.f, 0.6f, 0.5f,   2.8f);
-        ride.ratios = { 1.f, 1.341f, 1.751f, 2.183f, 2.887f, 3.412f };
+        ch.prepare  (sr, CymbalRom::hat(),  0.012f, 0.11f, 13000.f);
+        oh.prepare  (sr, CymbalRom::hat(),  0.10f,  0.75f, 13000.f);
+        ride.prepare(sr, CymbalRom::ride(), 0.45f,  2.6f,  11000.f);
     }
 
     VoiceParams& params(int inst) {
@@ -343,6 +433,16 @@ struct Kit {
             case RIM: return rim.p;     case TOM_LO: return tomLo.p; case TOM_MID: return tomMid.p;
             case TOM_HI: return tomHi.p; case CH: return ch.p;      case OH: return oh.p;
             default: return ride.p;
+        }
+    }
+
+    // Every machine gets its own small "factory" errors, like two real 909s.
+    void setTolerance(uint64_t seed) {
+        Noise n; n.seed((uint32_t)(seed ^ (seed >> 32)) | 1u);
+        for (int i = 0; i < kNumInstruments; ++i) {
+            auto& p = params(i);
+            p.tolTune  = 1.f + n.next() * 0.007f;   // ±0.7 %
+            p.tolDecay = 1.f + n.next() * 0.04f;    // ±4 %
         }
     }
 

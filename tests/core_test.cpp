@@ -1,6 +1,7 @@
 // MOTSTÅND — engine tests. Run:  g++ -std=c++17 -O2 -Isrc tests/core_test.cpp -o core_test && ./core_test
 #include "MotstandCore.h"
 #include "Voices.h"
+#include "Vinkelslip.h"
 #include <cstdio>
 #include <vector>
 
@@ -111,6 +112,30 @@ int main() {
         const double e0 = energy(-1.f), e1 = energy(1.f);
         std::printf("RIDER   ride energy at decayMod -1: %.1f, +1: %.1f\n", e0, e1);
         CHECK(e1 > e0 * 1.03, "decayMod has no audible effect");
+    }
+
+    // ---- VINKELSLIP: bypass is a clean fixed delay; every mode stays sane ----
+    {
+        Vinkelslip v; v.prepare(sr); v.drive = 0.f;
+        bool exact = true;
+        std::vector<float> in(2000); for (int i = 0; i < 2000; ++i) in[(size_t)i] = std::sin(i * 0.05f) * 0.5f;
+        for (int i = 0; i < 2000; ++i) {
+            const float y = v.process(in[(size_t)i]);
+            const float ref = i >= Vinkelslip::kLatency ? in[(size_t)(i - Vinkelslip::kLatency)] : 0.f;
+            if (std::fabs(y - ref) > 1e-6f) exact = false;
+        }
+        CHECK(exact, "bypassed VINKELSLIP is not a clean %d-sample delay", Vinkelslip::kLatency);
+        for (int m = 0; m < kNumSlipModes; ++m) {
+            Vinkelslip w; w.prepare(sr); w.mode = m; w.drive = 1.f; w.onTrigger(1.f);
+            float peak = 0; bool ok = true;
+            for (int i = 0; i < 48000; ++i) {
+                const float y = w.process(std::sin(i * 0.02f) * 0.8f);
+                if (!std::isfinite(y)) ok = false;
+                peak = std::max(peak, std::fabs(y));
+            }
+            std::printf("SLIP    mode %d full drive peak %.2f\n", m, peak);
+            CHECK(ok && peak < 1.4f && peak > 0.2f, "slip mode %d misbehaves (peak %.2f)", m, peak);
+        }
     }
 
     std::printf(failures ? "\n%d FAILED\n" : "\nALL OK\n", failures);

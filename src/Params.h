@@ -2,6 +2,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "Voices.h"
+#include "Vinkelslip.h"
 
 namespace motstand {
 
@@ -33,6 +34,12 @@ inline int noteToInstrument(int note) {
     }
 }
 
+// GM 909 notes sent by MIDI out (and the first match of the input map)
+inline constexpr int kInstNote[kNumInstruments] = { 36, 38, 39, 37, 41, 45, 48, 42, 46, 51 };
+
+inline const char* const kSlipModeName[kNumSlipModes] = {
+    "DIOD", "GERMANIUM", "TEJP", "VIKNING", "LIKRIKTARE", "ROM" };
+
 // How strongly the drunk walk rides each voice (x the global RIDE knob)
 inline constexpr float kRideBase[kNumInstruments] = {
     0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 1.f, 1.f, 1.f };
@@ -40,7 +47,8 @@ inline constexpr float kRideBase[kNumInstruments] = {
 namespace pid {
     inline juce::String inst(int i, const char* what) { return juce::String(kInstId[i]) + "_" + what; }
     inline const juce::String tempoSrc = "tempoSrc", bpm = "bpm", jitter = "jitter", drift = "drift",
-        nudge = "nudge", ride = "ride", smog = "smog", smogThr = "smogThr", seed = "seed", master = "master";
+        nudge = "nudge", ride = "ride", smog = "smog", smogThr = "smogThr", seed = "seed", master = "master",
+        elnat = "elnat", midiOut = "midiOut";
 }
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
@@ -65,12 +73,17 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
           NormalisableRange<float>(0.f, 1.f, 0.01f), 0.7f, pct));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::smog, 1 }, "DETROIT SMOG",
           NormalisableRange<float>(0.f, 1.f, 0.01f), 0.8f, pct));
-    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::smogThr, 1 }, "SMOG TRÖSKEL",
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::smogThr, 1 }, String::fromUTF8(u8"SMOG TRÖSKEL"),
           NormalisableRange<float>(1.5f, 6.f, 0.1f), 3.f));
     l.add(std::make_unique<AudioParameterInt>(ParameterID{ pid::seed, 1 }, "SEED", 1, 9999, 909));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::master, 1 }, "MASTER",
           NormalisableRange<float>(-24.f, 6.f, 0.1f), 0.f,
           AudioParameterFloatAttributes().withLabel("dB")));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::elnat, 1 }, String::fromUTF8(u8"ELNÄT"),      // 50 Hz workshop hum
+          NormalisableRange<float>(0.f, 1.f, 0.01f), 0.f, pct));
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::midiOut, 1 }, "MIDI UT", true));
+
+    StringArray slipModes; for (auto* m : kSlipModeName) slipModes.add(m);
 
     // ---- per instrument ----
     for (int i = 0; i < kNumInstruments; ++i) {
@@ -82,11 +95,20 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
               NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.55f : 0.45f, pct));
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "tone"), 1 }, n + " TON",
               NormalisableRange<float>(0.f, 1.f, 0.001f), 0.5f, pct));
-        l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "level"), 1 }, n + " NIVÅ",
+        l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "level"), 1 }, n + String::fromUTF8(u8" NIVÅ"),
               NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.85f : 0.55f, pct));
-        l.add(std::make_unique<AudioParameterInt>(ParameterID{ pid::inst(i, "len"), 1 }, n + " LÄNGD",
+        l.add(std::make_unique<AudioParameterInt>(ParameterID{ pid::inst(i, "len"), 1 }, n + String::fromUTF8(u8" LÄNGD"),
               1, kMaxSteps, defLen));
         l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::inst(i, "mute"), 1 }, n + " TYST", false));
+        // VINKELSLIP
+        l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::inst(i, "slipMode"), 1 }, n + String::fromUTF8(u8" SLIP LÄGE"),
+              slipModes, i == KICK ? (int)DIOD : i <= TOM_HI && i >= TOM_LO ? (int)VIKNING : i >= CH ? (int)LIKRIKTARE : (int)GERMANIUM));
+        l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "slipDrive"), 1 }, n + " SLIP DRIVE",
+              NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.18f : 0.f, pct));
+        l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "slipFeed"), 1 }, n + " MATNING",
+              NormalisableRange<float>(0.f, 1.f, 0.001f), 0.5f, pct));
+        l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "slipMix"), 1 }, n + " SLIP MIX",
+              NormalisableRange<float>(0.f, 1.f, 0.001f), 1.f, pct));
     }
     return l;
 }

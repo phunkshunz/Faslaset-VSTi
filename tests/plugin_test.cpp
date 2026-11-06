@@ -128,6 +128,56 @@ int main()
         CHECK (x == y, "same seed gave a different take");
     }
 
+    // 8. MIDI out: every step goes out as a GM 909 note, every note-on gets its note-off
+    {
+        MotstandProcessor p; p.prepareToPlay (sr, 512);
+        juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512);
+        int ons = 0, offs = 0, kicks = 0; bool badNote = false;
+        std::array<int, 128> open {};
+        for (int b = 0; b < (int) (8.0 * sr / 512); ++b)
+        {
+            juce::MidiBuffer m; p.processBlock (buf, m);
+            for (const auto meta : m)
+            {
+                const auto msg = meta.getMessage();
+                if (msg.isNoteOn()) { ++ons; ++open[(size_t) msg.getNoteNumber()]; if (msg.getNoteNumber() == 36) ++kicks; if (motstand::noteToInstrument (msg.getNoteNumber()) < 0) badNote = true; }
+                else if (msg.isNoteOff()) { ++offs; if (open[(size_t) msg.getNoteNumber()] > 0) --open[(size_t) msg.getNoteNumber()]; }
+            }
+        }
+        int hanging = 0; for (int v : open) hanging += v;
+        std::printf ("MIDI UT  %d note-on (%d kick), %d note-off, %d hanging at the end\n", ons, kicks, offs, hanging);
+        CHECK (ons > 100, "MIDI out sent too few notes");
+        CHECK (kicks >= 16, "kick notes missing");
+        CHECK (! badNote, "unknown note number sent");
+        CHECK (hanging <= motstand::kNumInstruments, "notes left hanging");
+        // switch it off: silence on the MIDI port
+        p.apvts.getParameter (motstand::pid::midiOut)->setValueNotifyingHost (0.f);
+        int after = 0;
+        for (int b = 0; b < 200; ++b) { juce::MidiBuffer m; p.processBlock (buf, m); for (const auto meta : m) if (meta.getMessage().isNoteOn()) ++after; }
+        CHECK (after == 0, "MIDI UT off still sends notes");
+    }
+    // 9. VINKELSLIP on every channel at full drive: still sane
+    {
+        for (int mode = 0; mode < motstand::kNumSlipModes; ++mode)
+        {
+            MotstandProcessor p;
+            for (int i = 0; i < motstand::kNumInstruments; ++i)
+            {
+                p.apvts.getParameter (motstand::pid::inst (i, "slipDrive"))->setValueNotifyingHost (1.f);
+                auto* mp = p.apvts.getParameter (motstand::pid::inst (i, "slipMode"));
+                mp->setValueNotifyingHost (mp->convertTo0to1 ((float) mode));
+            }
+            p.prepareToPlay (sr, 512);
+            auto r = run (p, 4.0);
+            std::printf ("SLIP     %-10s full drive on all: rms %.3f peak %.2f\n", motstand::kSlipModeName[mode], r.mainRms, r.peak);
+            CHECK (r.finite, "VINKELSLIP %s produced NaN", motstand::kSlipModeName[mode]);
+            CHECK (r.peak < 1.3, "VINKELSLIP %s too hot (%.2f)", motstand::kSlipModeName[mode], r.peak);
+            CHECK (r.mainRms > 0.02, "VINKELSLIP %s went silent", motstand::kSlipModeName[mode]);
+        }
+        MotstandProcessor p; p.prepareToPlay (sr, 512);
+        std::printf ("LATENS   %d samples (%.2f ms)\n", p.getLatencySamples(), p.getLatencySamples() / sr * 1000.0);
+    }
+
     std::printf (failures ? "\n%d FAILED\n" : "\nALL OK\n", failures);
     return failures ? 1 : 0;
 }

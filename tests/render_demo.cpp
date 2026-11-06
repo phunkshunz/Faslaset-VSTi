@@ -4,9 +4,11 @@
 //   g++ -std=c++17 -O2 -Isrc tests/render_demo.cpp -o render_demo && ./render_demo motstand_demo.wav
 #include "MotstandCore.h"
 #include "Voices.h"
+#include "Vinkelslip.h"
 #include <cstdio>
 #include <vector>
 #include <cstring>
+#include <string>
 
 using namespace motstand;
 
@@ -28,11 +30,21 @@ static void writeWav(const char* path, const std::vector<float>& L, const std::v
 
 int main(int argc, char** argv) {
     const char* out = argc > 1 ? argv[1] : "motstand_demo.wav";
+    const bool grind = argc > 2 && std::string(argv[2]) == "slip";   // second arg "slip" = VINKELSLIP on
     const int sr = 48000, bs = 256, bars = 32;
     const double bpm = 136.0;
 
     DieZeit clock; clock.prepare(sr, 0xD37A01); clock.baseBpm = bpm;
-    Kit kit; kit.prepare(sr);
+    Kit kit; kit.prepare(sr); kit.setTolerance(0xD37A01);
+    std::array<Vinkelslip, kNumInstruments> slip;
+    for (auto& v : slip) v.prepare(sr);
+    if (grind) {
+        auto set = [&](int i, int mode, float drive) { slip[(size_t)i].mode = mode; slip[(size_t)i].drive = drive; };
+        set(KICK, DIOD, 0.35f); set(CLAP, GERMANIUM, 0.45f); set(RIM, ROMKROSS, 0.4f);
+        set(TOM_LO, VIKNING, 0.5f); set(TOM_MID, VIKNING, 0.45f); set(TOM_HI, VIKNING, 0.4f);
+        set(OH, TEJP, 0.5f); set(RIDE, LIKRIKTARE, 0.3f);
+    }
+    Elnat hum; hum.prepare(sr); hum.amount = grind ? 0.35f : 0.f;
     DetroitSmog smog; smog.prepare(sr);
     std::array<DrunkRider, kNumInstruments> rider;
     std::array<float, kNumInstruments> rideAmt{ 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 0.35f, 1.f, 1.f, 1.f };
@@ -85,12 +97,15 @@ int main(int argc, char** argv) {
                         const float d = rider[inst].onTrigger() * rideAmt[inst];
                         const float t = rider[inst].onTrigger() * rideAmt[inst];
                         kit.trigger(inst, v / 127.f, t, d);
+                        slip[(size_t)inst].onTrigger(v / 127.f);
                         smog.addTransient(i, v / 127.f);
                     }
                 }
                 ++e;
             }
             float o[kNumInstruments]; kit.process(o);
+            for (int inst = 0; inst < kNumInstruments; ++inst) o[inst] = slip[(size_t)inst].process(o[inst]);
+            const float h = hum.process(); L[pos + i] += h; R[pos + i] += h;
             for (int inst = 0; inst < kNumInstruments; ++inst) {
                 L[pos + i] += o[inst] * (0.5f - 0.5f * pan[inst]);
                 R[pos + i] += o[inst] * (0.5f + 0.5f * pan[inst]);
