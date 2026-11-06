@@ -78,8 +78,7 @@ inline Bank factoryBank() {
     for (int i = 0; i < 16; ++i) A[CH][(size_t) i] = hit(ch[i]);
     for (int i : { 2, 6, 10 }) A[OH][(size_t) i] = hit(100);
     A[OH][14] = hit(110);
-    const int rd[8] = { 70, 90, 70, 95, 70, 90, 70, 100 };
-    for (int i = 0; i < 8; ++i) A[RIDE][(size_t) (i * 2)] = hit(rd[i]);
+    // no ride in A: three cymbal layers at once turn into a hiss bed (E is the ride pattern)
     A[CLAP][4] = hit(100); A[CLAP][12] = hit(105);
     A[TOM_LO][0] = hit(110); A[TOM_LO][3] = hit(80);
     A[TOM_MID][0] = hit(100); A[TOM_MID][4] = hit(70); A[TOM_MID][7] = hit(90);

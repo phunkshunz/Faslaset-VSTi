@@ -180,15 +180,16 @@ void MotstandProcessor::pullParameters()
     // UNDERGÅNG: one knob that drags the whole machine towards the end of the world
     if (const float m = pDoom->load(); m > 0.f)
     {
-        smog.amount  = std::max (smog.amount, m * 0.9f);
-        smog.threshold = std::min (smog.threshold, 3.5f - m * 1.2f);
-        press.amount = juce::jlimit (0.f, 1.f, press.amount + m * 0.55f);
-        pump.amount  = std::max (pump.amount, m * 0.5f);
-        muller.amount = std::max (muller.amount, m * 0.75f);
-        muller.dirt   = std::max (muller.dirt, m * 0.8f);
-        storm.amount  = std::max (storm.amount, m * 0.3f);
-        for (auto& v : slip) v.drive = juce::jlimit (0.f, 1.f, v.drive + m * 0.45f);
-        masterGain *= 1.f + m * 0.9f;      // the squeeze costs level; give it back (about +5.6 dB at full)
+        // heavy, not noisy: weight from the rumble and the bus, only a little grind and sand
+        smog.amount  = std::max (smog.amount, m * 0.6f);
+        smog.threshold = std::min (smog.threshold, 3.5f - m * 0.8f);
+        press.amount = juce::jlimit (0.f, 1.f, press.amount + m * 0.5f);
+        pump.amount  = std::max (pump.amount, m * 0.45f);
+        muller.amount = std::max (muller.amount, m * 0.7f);
+        muller.dirt   = std::max (muller.dirt, m * 0.5f);
+        storm.amount  = std::max (storm.amount, m * 0.12f);
+        for (auto& v : slip) v.drive = juce::jlimit (0.f, 1.f, v.drive + m * 0.25f);
+        masterGain *= 1.f + m * 0.7f;      // the squeeze costs level; give it back (about +4.6 dB at full)
     }
 }
 

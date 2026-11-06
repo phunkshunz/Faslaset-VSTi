@@ -124,6 +124,16 @@ Allt är av som standard: grunden är fortfarande ren.
   EVIGT MÖRKER, VÄRLDENS ÄNDE) och **PSYKOS** (PSYKOS, FEBERDRÖM, PARANOIA, SÖMNLÖS, HALLUCINOS, MANI,
   ISOLERING, SKRIK) med rullande spökkickar och en rulle in i ettan. Totalt 65 presets.
 
+## Ren profil (steg 4g)
+Alla presets genereras från en tämjd kopia av sin stil (`cleaned()` i `src/Presets.h`): VINKELSLIP x0,45,
+chans och rullar x0,5, jitter max 0,9 ms, drift x0,5, Smog x0,6, hall/eko x0,6 (hall max 4 s, mörkare),
+storm x0,25, larm x0,5, elnät och 6-bit bara i ROM-KORN, brusiga modeller byts mot rena utanför ROM-KORN.
+Cymbaler: aldrig tre fulla lager (16-delshats gör ride till fjärdedelar, ingen öppen hat ovanpå en tät ride),
+glesare svaga 16-delar, kortare svansar, lägre nivå, mjukare rekonstruktionsfilter (12,5/11 kHz),
+mindre brus i CRASH/SPRAK/METALL-ROM:arna. Fabriksmönster A har ingen ride (E är ride-mönstret).
+UNDERGÅNG-ratten är mildare (tyngd från muller och bus, lite slip och sand).
+Mätt (HF-brus över 2 kHz mellan slagen): FABRIK -32 → -36 dB, VÄRLDENS ÄNDE -26 → -33 dB, ASKREGN -30 → -36 dB.
+
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
@@ -134,6 +144,7 @@ Allt är av som standard: grunden är fortfarande ren.
 4d. ✅ Sequencer: CHANS, RULLE, steglås (TUNE/DECAY), 8 mönster A–H, FILL, KOPIERA/KLISTRA/RENSA
 4e. ✅ 40 ljudmodeller (4 per kanal) + 49 presets i 8 kategorier, preset-bläddrare
 4f. ✅ UNDERGÅNG: MULLER, MOTOR V8, STORM + LARM, UNDERGÅNG-ratten, 16 presets (65 totalt)
+4g. ✅ Ren profil: mindre kaos och brus i alla presets, renare cymbaler
 5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
 
 ## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`

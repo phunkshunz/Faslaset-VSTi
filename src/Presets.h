@@ -167,7 +167,10 @@ inline PatternData base (const Style& st, Gen& g, std::array<int, kNumInstrument
     // hats
     if (st.hats == 0)
         for (int s = 0; s < 16; ++s)
-            A[CH][(size_t) s] = s % 4 == 2 ? hit (g.i (98, 115)) : hit (g.i (38, 70), s % 2 ? chanceFor (100) : 100, s % 4 == 3 ? rollFor() : 1);
+        {
+            if (s % 2 && g.p (0.5f)) continue;               // thin the weak 16ths: air between the hats
+            A[CH][(size_t) s] = s % 4 == 2 ? hit (g.i (98, 115)) : hit (s % 2 ? g.i (30, 50) : g.i (50, 70), s % 2 ? chanceFor (100) : 100, s % 4 == 3 ? rollFor() : 1);
+        }
     else if (st.hats == 1)
         for (int s : { 2, 6, 10, 14 }) A[CH][(size_t) s] = hit (g.i (90, 112));
     else if (st.hats == 2)
@@ -175,15 +178,18 @@ inline PatternData base (const Style& st, Gen& g, std::array<int, kNumInstrument
     else
         for (int s = 0; s < 16; ++s) if (g.p (0.45f)) A[CH][(size_t) s] = hit (g.i (40, 100), chanceFor (100), rollFor());
 
-    // open hat on the offbeats unless the closed hats already sit there
-    if (st.hats != 1)
+    // never three full cymbal layers at once: with 16th hats the ride drops to quarters
+    int rideStyle = st.ride;
+    if (st.hats == 0 && (rideStyle == 1 || rideStyle == 2)) rideStyle = 3;
+    // open hat on the offbeats unless the closed hats already sit there (and not on top of a busy ride)
+    if (st.hats != 1 && rideStyle != 1 && rideStyle != 2)
         for (int s : { 2, 6, 10, 14 }) { if (g.p (0.8f)) A[OH][(size_t) s] = hit (g.i (90, 112)); }
     if (st.hats == 1 && g.p (0.5f)) A[OH][14] = hit (100);
 
     // ride
-    if (st.ride == 1) for (int s = 0; s < 16; s += 2) A[RIDE][(size_t) s] = hit (g.i (60, 100));
-    if (st.ride == 2) for (int s = 0; s < 16; ++s) A[RIDE][(size_t) s] = hit (s % 4 == 2 ? g.i (95, 110) : g.i (45, 75), s % 2 ? chanceFor (100) : 100);
-    if (st.ride == 3) for (int s = 0; s < 16; s += 4) A[RIDE][(size_t) s] = hit (g.i (70, 100));
+    if (rideStyle == 1) for (int s = 0; s < 16; s += 2) A[RIDE][(size_t) s] = hit (g.i (55, 90));
+    if (rideStyle == 2) for (int s = 0; s < 16; ++s) A[RIDE][(size_t) s] = hit (s % 4 == 2 ? g.i (90, 105) : g.i (40, 65), s % 2 ? chanceFor (100) : 100);
+    if (rideStyle == 3) for (int s = 2; s < 16; s += 4) A[RIDE][(size_t) s] = hit (g.i (60, 90));
 
     // clap / snare
     if (st.perc > 0.2f) { A[CLAP][4] = hit (g.i (95, 110)); A[CLAP][12] = hit (g.i (98, 112)); }
@@ -210,7 +216,7 @@ inline Bank derive (const PatternData& A, Gen& g)
     auto set = [] (PatternData& p, int inst, int s, uint32_t v) { p[(size_t) inst][(size_t) s] = v; };
     // B alive
     PatternData B = A;
-    for (int s = 0; s < 16; ++s) { auto st = Step::unpack (B[CH][(size_t) s]); if (st.vel && s % 4 != 2) { st.chance = g.i (60, 85); B[CH][(size_t) s] = st.pack(); } }
+    for (int s = 0; s < 16; ++s) { auto st = Step::unpack (B[CH][(size_t) s]); if (st.vel && s % 4 != 2 && s % 2) { st.chance = g.i (75, 95); B[CH][(size_t) s] = st.pack(); } }
     set (B, KICK, 14, hit (70, 35));
     for (int s = 0; s < kMaxSteps; ++s) { auto st = Step::unpack (B[RIM][(size_t) s]); if (st.vel) { st.ratchet = 3; B[RIM][(size_t) s] = st.pack(); break; } }
     b[1] = B;
@@ -226,7 +232,8 @@ inline Bank derive (const PatternData& A, Gen& g)
     b[3] = D;
     // E ride drive
     PatternData E = A; E[CH].fill (Step::rest());
-    for (int s = 0; s < 16; ++s) set (E, RIDE, s, hit (s % 4 == 2 ? 110 : (s % 2 ? 55 : 80), s % 2 ? 85 : 100));
+    E[OH].fill (Step::rest());
+    for (int s = 0; s < 16; ++s) set (E, RIDE, s, hit (s % 4 == 2 ? 105 : (s % 2 ? 45 : 70), s % 2 ? 85 : 100));
     b[4] = E;
     // F fill-ready
     PatternData F = A;
@@ -252,9 +259,39 @@ inline Bank derive (const PatternData& A, Gen& g)
 // ---------------------------------------------------------------------
 //  Apply a style. `set` takes a parameter id and a PLAIN value.
 // ---------------------------------------------------------------------
-inline Bank applyStyle (const Style& st, const std::function<void (const juce::String&, float)>& set)
+// The clean profile: every preset is generated from a tamed copy of its style,
+// so the machine stays heavy but clean - air between the hits, no hiss, no chaos.
+inline Style cleaned (Style st)
+{
+    const bool lofi = juce::String::fromUTF8 (st.cat) == "ROM-KORN";
+    st.slip   *= 0.45f;
+    st.chance *= 0.5f;
+    st.rolls  *= 0.5f;
+    st.smog   *= 0.6f;
+    st.jitter  = std::min (st.jitter, 0.9f);
+    st.drift  *= 0.5f;
+    st.hall   *= 0.6f;
+    st.eko    *= 0.6f;
+    st.hallDecay = std::min (st.hallDecay, 4.f);
+    st.elnat   = lofi ? st.elnat * 0.4f : 0.f;
+    st.rom     = lofi ? st.rom : 0;
+    st.muller *= 0.8f;  st.mDepth = std::min (st.mDepth, 5.f);  st.mDirt *= 0.6f;
+    st.motor  *= 0.5f;  st.rattle *= 0.5f;
+    st.storm  *= 0.25f; st.alarm  *= 0.5f;
+    st.doom   *= 0.4f;
+    if (! lofi)
+    {   // swap the noisy sound models for clean ones
+        if (st.models[SNARE] == 3) st.models[SNARE] = 2;            // BRUS -> FET
+        for (int h : { CH, OH }) if (st.models[(size_t) h] == 2) st.models[(size_t) h] = 1;   // BRUS -> 808
+        if (st.models[RIDE] == 3) st.models[RIDE] = 0;              // SPRAK -> 909
+    }
+    return st;
+}
+
+inline Bank applyStyle (const Style& original, const std::function<void (const juce::String&, float)>& set)
 {
     using namespace presetgen;
+    const Style st = cleaned (original);
     Gen g (st.seed);
     std::array<int, kNumInstruments> len {};
     const auto A = base (st, g, len);
@@ -269,6 +306,10 @@ inline Bank applyStyle (const Style& st, const std::function<void (const juce::S
         set (pid::inst (i, "decay"), juce::jlimit (0.f, 1.f, (i == KICK ? st.kickDecay : 0.45f) + (g.f() - 0.5f) * 0.2f));
         set (pid::inst (i, "tone"), juce::jlimit (0.f, 1.f, 0.5f + (g.f() - 0.5f) * 0.3f));
     }
+    // cymbals: short tails, a little lower - clean tops
+    set (pid::inst (OH, "decay"), 0.25f + g.f() * 0.15f);
+    set (pid::inst (RIDE, "decay"), 0.2f + g.f() * 0.15f);
+    set (pid::inst (CH, "decay"), 0.3f + g.f() * 0.2f);
     // VINKELSLIP: each lane gets the mode that suits it, scaled by the style
     const int   slipMode[kNumInstruments] = { DIOD, GERMANIUM, GERMANIUM, ROMKROSS, VIKNING, VIKNING, VIKNING, LIKRIKTARE, TEJP, LIKRIKTARE };
     const float slipW[kNumInstruments]    = { 0.5f, 0.4f, 0.6f, 0.5f, 0.6f, 0.55f, 0.5f, 0.3f, 0.5f, 0.4f };
@@ -279,8 +320,8 @@ inline Bank applyStyle (const Style& st, const std::function<void (const juce::S
         set (pid::inst (i, "slipDrive"), d > 0.05f ? juce::jlimit (0.f, 1.f, d) : 0.f);
     }
     // sends: the kick stays dry
-    const float hallW[kNumInstruments] = { 0.f, 0.5f, 0.7f, 0.6f, 0.5f, 0.5f, 0.5f, 0.15f, 0.5f, 0.6f };
-    const float ekoW[kNumInstruments]  = { 0.f, 0.3f, 0.4f, 0.7f, 0.3f, 0.4f, 0.6f, 0.1f, 0.3f, 0.3f };
+    const float hallW[kNumInstruments] = { 0.f, 0.5f, 0.7f, 0.6f, 0.5f, 0.5f, 0.5f, 0.0f, 0.2f, 0.2f };
+    const float ekoW[kNumInstruments]  = { 0.f, 0.3f, 0.4f, 0.7f, 0.3f, 0.4f, 0.6f, 0.0f, 0.1f, 0.1f };
     for (int i = 0; i < kNumInstruments; ++i)
     {
         set (pid::inst (i, "sendHall"), juce::jlimit (0.f, 1.f, st.hall * hallW[i] * (0.5f + g.f())));
@@ -289,15 +330,15 @@ inline Bank applyStyle (const Style& st, const std::function<void (const juce::S
     // effects + clock
     set (pid::hallDecay, st.hallDecay);
     set (pid::hallSize, juce::jlimit (0.f, 1.f, 0.35f + st.hallDecay / 12.f + g.f() * 0.2f));
-    set (pid::hallDamp, 0.3f + g.f() * 0.4f);
+    set (pid::hallDamp, 0.45f + g.f() * 0.3f);          // darker halls: no fizz in the tail
     set (pid::hallPre, 8.f + g.f() * 40.f);
     set (pid::ekoTime, (float) g.i (1, 4));
-    set (pid::ekoFeedback, 0.3f + st.eko * 0.4f);
+    set (pid::ekoFeedback, 0.25f + st.eko * 0.3f);
     set (pid::ekoTone, 0.3f + g.f() * 0.4f);
-    set (pid::ekoWear, st.rom ? 0.6f : 0.2f + g.f() * 0.3f);
+    set (pid::ekoWear, st.rom ? 0.4f : 0.1f + g.f() * 0.1f);
     set (pid::smog, st.smog); set (pid::pressAmt, st.press); set (pid::pump, st.pump);
     set (pid::jitter, st.jitter); set (pid::drift, st.drift);
-    set (pid::ride, 0.4f + g.f() * 0.5f);
+    set (pid::ride, 0.3f + g.f() * 0.3f);
     set (pid::romMode, (float) st.rom);
     set (pid::elnat, st.elnat);
     set (pid::seed, (float) (1 + st.seed % 9999));

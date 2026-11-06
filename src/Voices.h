@@ -134,7 +134,7 @@ struct Kick {
         switch (p.model) {
             case 1: lo = 31.f; range = 22.f; decMul = 1.9f; amt1 = 1.4f; amt2 = 0.5f; clickMul = 0.35f; kShape = 0.35f; kVel = 0.4f; break;
             case 2: lo = 48.f; range = 34.f; decMul = 0.42f; amt1 = 4.4f; amt2 = 1.5f; snap = 0.6f; clickMul = 1.6f; kShape = 1.6f; kVel = 1.6f; break;
-            case 3: lo = 40.f; range = 28.f; decMul = 0.85f; amt1 = 3.4f; amt2 = 1.1f; clickMul = 1.2f; kShape = 3.2f; kVel = 2.0f; bodyNz = 0.32f; break;
+            case 3: lo = 40.f; range = 28.f; decMul = 0.85f; amt1 = 3.4f; amt2 = 1.1f; clickMul = 1.1f; kShape = 3.2f; kVel = 2.0f; bodyNz = 0.14f; break;
             default: break;
         }
         base = (lo + range * p.tune) * p.tolTune * semis(tuneMod * kRideTuneSemis);
@@ -428,11 +428,11 @@ struct CymbalRom {
         return r;
     }
     static const CymbalRom& hatMetal() {   // inharmonic sine ring, FM-ish, industrial
-        static const CymbalRom r = build({ 1210.f, 1793.f, 2613.f, 3301.f, 4877.f, 6453.f }, 6000.f, 0.4f, 2800.f, 1.4f, 0.35f, 0x3E7u, 0.08f, false, 0.4f);
+        static const CymbalRom r = build({ 1210.f, 1793.f, 2613.f, 3301.f, 4877.f, 6453.f }, 6000.f, 0.4f, 2800.f, 1.4f, 0.35f, 0x3E7u, 0.f, false, 0.25f);
         return r;
     }
     static const CymbalRom& crash() {
-        static const CymbalRom r = build({ 196.f, 263.f, 344.f, 428.f, 567.f, 670.f }, 6500.f, 0.4f, 3500.f, 4.5f, 1.6f, 0xC4Au, 0.55f, true, 0.8f);
+        static const CymbalRom r = build({ 196.f, 263.f, 344.f, 428.f, 567.f, 670.f }, 6500.f, 0.4f, 3500.f, 4.5f, 1.4f, 0xC4Au, 0.25f, true, 0.5f);
         return r;
     }
     static const CymbalRom& bell() {        // ride bell: few strong partials
@@ -440,7 +440,7 @@ struct CymbalRom {
         return r;
     }
     static const CymbalRom& sizzle() {
-        static const CymbalRom r = build({ 151.f, 202.5f, 264.4f, 329.6f, 436.0f, 515.3f }, 7000.f, 0.5f, 4000.f, 4.f, 1.4f, 0x512u, 0.35f, true, 0.5f);
+        static const CymbalRom r = build({ 151.f, 202.5f, 264.4f, 329.6f, 436.0f, 515.3f }, 7000.f, 0.5f, 4000.f, 4.f, 1.2f, 0x512u, 0.18f, true, 0.35f);
         return r;
     }
 };
@@ -516,9 +516,10 @@ struct Kit {
     void prepare(double sr) {
         kick.prepare(sr); snare.prepare(sr); clap.prepare(sr); rim.prepare(sr);
         tomLo.prepare(sr, 82.f, 0x701u); tomMid.prepare(sr, 123.f, 0x702u); tomHi.prepare(sr, 174.f, 0x703u);
-        ch.prepare  (sr, CymbalRom::hat(),  0.012f, 0.11f, 15000.f);
-        oh.prepare  (sr, CymbalRom::hat(),  0.10f,  0.75f, 15000.f);
-        ride.prepare(sr, CymbalRom::ride(), 0.45f,  2.6f,  13000.f);
+        // reconstruction filters a bit lower than "open": the sparkle stays, the hiss goes
+        ch.prepare  (sr, CymbalRom::hat(),  0.012f, 0.11f, 12500.f);
+        oh.prepare  (sr, CymbalRom::hat(),  0.10f,  0.75f, 12500.f);
+        ride.prepare(sr, CymbalRom::ride(), 0.45f,  2.6f,  11000.f);
         // all ROMs are built here (once), never on the audio thread
         ch.roms = oh.roms = { &CymbalRom::hat(), &CymbalRom::hat808(), &CymbalRom::hatNoise(), &CymbalRom::hatMetal() };
         ride.roms = { &CymbalRom::ride(), &CymbalRom::crash(), &CymbalRom::bell(), &CymbalRom::sizzle() };

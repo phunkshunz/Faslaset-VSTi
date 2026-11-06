@@ -194,11 +194,11 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "tune"), 1 }, n + " TUNE",
               NormalisableRange<float>(0.f, 1.f, 0.001f), 0.5f, pct));
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "decay"), 1 }, n + " DECAY",
-              NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.55f : 0.45f, pct));
+              NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.55f : i == OH ? 0.35f : i == RIDE ? 0.3f : 0.45f, pct));
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "tone"), 1 }, n + " TON",
               NormalisableRange<float>(0.f, 1.f, 0.001f), 0.5f, pct));
         l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::inst(i, "level"), 1 }, n + String::fromUTF8(u8" NIVÅ"),
-              NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.85f : 0.55f, pct));
+              NormalisableRange<float>(0.f, 1.f, 0.001f), i == KICK ? 0.85f : i >= CH ? 0.45f : 0.55f, pct));
         l.add(std::make_unique<AudioParameterInt>(ParameterID{ pid::inst(i, "len"), 1 }, n + String::fromUTF8(u8" LÄNGD"),
               1, kMaxSteps, defLen));
         l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::inst(i, "mute"), 1 }, n + " TYST", false));
