@@ -1,4 +1,4 @@
-// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [en] [scale]
+// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [sv|en] [scale] [pattern 0-7]
 #include "../src/PluginProcessor.h"
 #include "../src/PluginEditor.h"
 
@@ -8,11 +8,13 @@ int main (int argc, char** argv)
     const juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile (argc > 1 ? argv[1] : "motstand_panel.png");
     const bool en = argc > 2 && juce::String (argv[2]) == "en";
     const float scale = argc > 3 ? juce::String (argv[3]).getFloatValue() : 1.f;
+    const int pattern = argc > 4 ? juce::String (argv[4]).getIntValue() : 0;     // 0..7 = A..H
 
     MotstandProcessor p;
     p.apvts.state.setProperty ("lang", en ? "en" : "sv", nullptr);
     // show some life: a bit of VINKELSLIP and a playing machine
     auto set = [&] (const juce::String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+    set (motstand::pid::pattern, (float) pattern);
     set (motstand::pid::inst (motstand::KICK, "slipDrive"), 0.35f);
     set (motstand::pid::inst (motstand::TOM_LO, "slipDrive"), 0.5f);
     set (motstand::pid::inst (motstand::OH, "slipDrive"), 0.4f);

@@ -96,6 +96,7 @@ void PolyRings::paint (juce::Graphics& g)
 void StepGrid::paint (juce::Graphics& g)
 {
     const int len = (int) proc.apvts.getRawParameterValue (pid::inst (lane, "len"))->load();
+    const int pat = proc.viewPattern();
     const bool kick = lane == KICK;
     const float h = (float) getHeight();
     for (int s = 0; s < kMaxSteps; ++s)
@@ -109,18 +110,65 @@ void StepGrid::paint (juce::Graphics& g)
         const bool beat = (s / 4) % 2 == 0;
         g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRoundedRectangle (r.translated (0.f, 1.f), 2.f);
         g.setColour (beat ? C::iron2 : C::night); g.fillRoundedRectangle (r, 2.f);
-        const int v = proc.getStep (lane, s);
-        if (v)
+        const auto st = proc.getCell (pat, lane, s);
+        const int v = st.vel;
+        const auto col = kick ? C::paper : C::tube;
+        if (v && mode == kSlag)
         {
             const float a = 0.3f + 0.7f * v / 127.f;
-            const auto col = kick ? C::paper : C::tube;
             g.setColour (col.withAlpha (0.18f * a)); g.fillRoundedRectangle (r.expanded (1.5f), 3.f);
             g.setColour (col.withAlpha (a)); g.fillRoundedRectangle (r.reduced (1.5f), 1.5f);
-            // velocity bar
-            const float vh = (r.getHeight() - 6.f) * v / 127.f;
+            const float vh = (r.getHeight() - 6.f) * v / 127.f;               // velocity bar
             g.setColour (C::night.withAlpha (0.55f));
             g.fillRect (r.getX() + 3.f, r.getBottom() - 3.f - vh, 2.f, vh);
             if (v > 110) { g.setColour (juce::Colours::white.withAlpha (0.5f)); g.fillRect (r.getX() + 3.f, r.getY() + 3.f, r.getWidth() - 6.f, 1.5f); }
+            // the extras, as small marks so the grid still reads at a glance
+            for (int k = 1; k < st.ratchet; ++k)                               // RULLE: dots on the right
+            { g.setColour (C::night); g.fillEllipse (r.getRight() - 5.f, r.getY() + 3.f + (float) (k - 1) * 5.f, 3.f, 3.f); }
+            if (st.chance < 100 || st.chance >= kChanceFill)                   // CHANS: hazard notch
+            {
+                juce::Path tri; tri.addTriangle (r.getX() + 1.5f, r.getBottom() - 1.5f, r.getX() + 7.f, r.getBottom() - 1.5f, r.getX() + 1.5f, r.getBottom() - 7.f);
+                g.setColour (st.chance >= kChanceFill ? C::alarm : C::hazard); g.fillPath (tri);
+            }
+            if (st.hasLocks()) { g.setColour (C::night); g.fillRect (r.getX() + 2.f, r.getY() + 2.f, 4.f, 4.f); }   // LÅS: dark square
+        }
+        else if (v)
+        {
+            // the step exists: dim body, the edited property drawn on top
+            g.setColour (col.withAlpha (0.16f)); g.fillRoundedRectangle (r.reduced (1.5f), 1.5f);
+            const auto inner = r.reduced (2.5f);
+            if (mode == kChans)
+            {
+                if (st.chance >= kChanceFill)
+                {
+                    g.setColour (st.chance == kChanceFill ? C::hazard : C::alarm); g.fillRoundedRectangle (inner, 1.5f);
+                    g.setFont (stencil (8.f)); g.setColour (C::night);
+                    g.drawText (st.chance == kChanceFill ? "F" : "!F", inner, juce::Justification::centred, false);
+                }
+                else
+                {
+                    const float fh = inner.getHeight() * st.chance / 100.f;
+                    g.setColour (C::hazard.withAlpha (0.9f)); g.fillRect (inner.withTrimmedTop (inner.getHeight() - fh));
+                }
+            }
+            else if (mode == kRulle)
+            {
+                const float w = inner.getWidth() / (float) st.ratchet;
+                for (int k = 0; k < st.ratchet; ++k)
+                {
+                    g.setColour (col.withAlpha (k == 0 ? 1.f : 0.75f));
+                    g.fillRect (inner.getX() + k * w + 0.5f, inner.getY(), std::max (1.f, w - 1.f), inner.getHeight());
+                }
+            }
+            else   // TUNE / DECAY locks: bipolar bar from the middle
+            {
+                const int lock = mode == kTune ? st.tune : st.decay;
+                const float mid = inner.getCentreY(), hh = inner.getHeight() * 0.5f * std::abs (lock) / (float) kLockRange;
+                g.setColour (C::steel); g.fillRect (inner.getX(), mid - 0.5f, inner.getWidth(), 1.f);
+                g.setColour (lock > 0 ? C::tube : C::alarm);
+                if (lock > 0) g.fillRect (inner.getX(), mid - hh, inner.getWidth(), hh);
+                else if (lock < 0) g.fillRect (inner.getX(), mid, inner.getWidth(), hh);
+            }
         }
         if (s == playhead)
         {
@@ -134,40 +182,89 @@ void StepGrid::mouseDown (const juce::MouseEvent& e)
 {
     const int c = cellAt (e.position.x);
     const int len = (int) proc.apvts.getRawParameterValue (pid::inst (lane, "len"))->load();
-    if (c >= len) { dragCell = -1; return; }
-    const int v = proc.getStep (lane, c);
-    dragCell = c; dragStartY = e.position.y; dragStartVel = v;
-    if (e.mods.isPopupMenu())                // right click: accent / soft / off
+    dragCell = -1;
+    if (c >= len) return;
+    const int pat = proc.viewPattern();
+    auto st = proc.getCell (pat, lane, c);
+    dragStartY = e.position.y;
+
+    if (mode == kSlag)
     {
-        proc.setStep (lane, c, (uint8_t) (v == 0 ? 127 : v > 110 ? 60 : 0));
-        dragCell = -1;
+        const int v = st.vel;
+        dragCell = c; dragStartVel = v;
+        if (e.mods.isPopupMenu())                // right click: accent / soft / off
+        {
+            proc.setStep (lane, c, (uint8_t) (v == 0 ? 127 : v > 110 ? 60 : 0));
+            dragCell = -1;
+        }
+        else if (v == 0) { proc.setStep (lane, c, 100); paintOn = true; dragStartVel = 100; }
+        else paintOn = false;
     }
-    else if (v == 0) { proc.setStep (lane, c, 100); paintOn = true; dragStartVel = 100; }
-    else paintOn = false;
+    else if (st.vel > 0)                         // the other modes edit existing hits only
+    {
+        dragCell = c;
+        if (mode == kChans)
+        {
+            if (e.mods.isPopupMenu())            // 100 % -> only with FILL -> only without FILL -> 100 %
+            {
+                st.chance = st.chance == kChanceFill ? kChanceNoFill : st.chance == kChanceNoFill ? 100 : kChanceFill;
+                proc.setCell (pat, lane, c, st); dragCell = -1;
+            }
+            dragStartVel = st.chance >= kChanceFill ? 100 : st.chance;
+        }
+        else if (mode == kRulle)
+        {
+            st.ratchet = e.mods.isPopupMenu() ? 1 : st.ratchet % 4 + 1;       // 1 -> 2 -> 3 -> 4 -> 1
+            proc.setCell (pat, lane, c, st); dragCell = -1;
+        }
+        else
+        {
+            int& lock = mode == kTune ? st.tune : st.decay;
+            if (e.mods.isPopupMenu() || e.getNumberOfClicks() > 1) { lock = 0; proc.setCell (pat, lane, c, st); dragCell = -1; }
+            dragStartVel = lock;
+        }
+    }
     repaint();
 }
 
 void StepGrid::mouseDrag (const juce::MouseEvent& e)
 {
     if (dragCell < 0) return;
-    if (paintOn)
-    {   // drag across to draw more hits
-        const int c = cellAt (e.position.x);
-        const int len = (int) proc.apvts.getRawParameterValue (pid::inst (lane, "len"))->load();
-        if (c < len && proc.getStep (lane, c) == 0) proc.setStep (lane, c, 100);
-        // ... and up/down to set the velocity of the first one
-        if (std::abs (e.position.y - dragStartY) > 3.f)
-            proc.setStep (lane, dragCell, (uint8_t) juce::jlimit (1, 127, dragStartVel + (int) ((dragStartY - e.position.y) * 2.f)));
+    const int pat = proc.viewPattern();
+    const float dy = dragStartY - e.position.y;
+    if (mode == kSlag)
+    {
+        if (paintOn)
+        {   // drag across to draw more hits
+            const int c = cellAt (e.position.x);
+            const int len = (int) proc.apvts.getRawParameterValue (pid::inst (lane, "len"))->load();
+            if (c < len && proc.getStep (lane, c) == 0) proc.setStep (lane, c, 100);
+            // ... and up/down to set the velocity of the first one
+            if (std::abs (dy) > 3.f)
+                proc.setStep (lane, dragCell, (uint8_t) juce::jlimit (1, 127, dragStartVel + (int) (dy * 2.f)));
+        }
+        else if (std::abs (e.getDistanceFromDragStart()) > 3)
+            proc.setStep (lane, dragCell, (uint8_t) juce::jlimit (1, 127, dragStartVel + (int) (dy * 2.f)));
     }
-    else if (std::abs (e.getDistanceFromDragStart()) > 3)
-        proc.setStep (lane, dragCell, (uint8_t) juce::jlimit (1, 127, dragStartVel + (int) ((dragStartY - e.position.y) * 2.f)));
+    else if (mode == kChans)
+    {
+        auto st = proc.getCell (pat, lane, dragCell);
+        st.chance = juce::jlimit (0, 100, dragStartVel + (int) (dy * 1.5f));
+        proc.setCell (pat, lane, dragCell, st);
+    }
+    else if (mode == kTune || mode == kDecay)
+    {
+        auto st = proc.getCell (pat, lane, dragCell);
+        (mode == kTune ? st.tune : st.decay) = juce::jlimit (-kLockRange, kLockRange, dragStartVel + (int) (dy / 2.5f));
+        proc.setCell (pat, lane, dragCell, st);
+    }
     repaint();
 }
 
 void StepGrid::mouseUp (const juce::MouseEvent& e)
 {
-    // a plain click on a lit step turns it off
-    if (dragCell >= 0 && ! paintOn && e.getDistanceFromDragStart() <= 3)
+    // in SLAG mode a plain click on a lit step turns it off
+    if (mode == kSlag && dragCell >= 0 && ! paintOn && e.getDistanceFromDragStart() <= 3)
         proc.setStep (lane, dragCell, 0);
     dragCell = -1;
     repaint();
@@ -176,7 +273,7 @@ void StepGrid::mouseUp (const juce::MouseEvent& e)
 // =====================================================================
 //  LaneRow
 // =====================================================================
-LaneRow::LaneRow (MotstandProcessor& p, int i) : grid (p, i), proc (p), inst (i)
+LaneRow::LaneRow (MotstandProcessor& p, int i, const int& editMode) : grid (p, i, editMode), proc (p), inst (i)
 {
     addAndMakeVisible (grid);
     addAndMakeVisible (dice);
@@ -389,10 +486,41 @@ Root::Root (MotstandProcessor& p)
     addAndMakeVisible (fxDice);
     fxDice.onClick = [this] { randomiseFx(); };
 
+    // ---- patterns A..H, copy/paste/clear, FILL, edit modes ----
+    for (int i = 0; i < kNumPatterns; ++i)
+    {
+        patBtns.push_back (std::make_unique<PatternButton> (i));
+        addAndMakeVisible (*patBtns.back());
+        patBtns.back()->onClick = [this, i] { setParam (pid::pattern, (float) i); };
+    }
+    for (auto* b : { &copyBtn, &pasteBtn, &clearBtn, &fillBtn }) addAndMakeVisible (*b);
+    copyBtn.onClick = [this] { clipboard = std::make_unique<PatternData> (proc.copyPattern (proc.viewPattern())); };
+    pasteBtn.onClick = [this] { if (clipboard) { proc.pastePattern (proc.viewPattern(), *clipboard); for (auto& l : lanes) l->grid.repaint(); } };
+    clearBtn.onClick = [this]
+    {
+        clipboard = std::make_unique<PatternData> (proc.copyPattern (proc.viewPattern()));   // KLISTRA undoes it
+        PatternData empty {}; for (auto& l : empty) l.fill (Step::rest());
+        proc.pastePattern (proc.viewPattern(), empty);
+        for (auto& l : lanes) l->grid.repaint();
+    };
+    fillBtn.onStateChange = [this]
+    {   // momentary: FILL plays only while the button is held
+        const bool d = fillBtn.isDown();
+        if (d != fillDown) { fillDown = d; setParam (pid::fill, d ? 1.f : 0.f); }
+    };
+    for (int k = 0; k < kNumEditModes; ++k)
+    {
+        modeBtns[(size_t) k].setClickingTogglesState (true);
+        modeBtns[(size_t) k].setRadioGroupId (4711);
+        modeBtns[(size_t) k].onClick = [this, k] { setEditMode (k); };
+        addAndMakeVisible (modeBtns[(size_t) k]);
+    }
+    modeBtns[0].setToggleState (true, juce::dontSendNotification);
+
     // ---- lanes ----
     for (int i = 0; i < kNumInstruments; ++i)
     {
-        lanes.push_back (std::make_unique<LaneRow> (p, i));
+        lanes.push_back (std::make_unique<LaneRow> (p, i, editMode));
         addAndMakeVisible (*lanes.back());
     }
     addAndMakeVisible (slipDice);
@@ -420,6 +548,19 @@ void Root::randomiseSmog()
     juce::Random r;
     setParam (pid::smog, 0.1f + r.nextFloat() * 0.6f);
     setParam (pid::smogThr, 2.5f + r.nextFloat() * 2.f);
+}
+
+void Root::setEditMode (int m)
+{
+    editMode = m;
+    for (int k = 0; k < kNumEditModes; ++k) modeBtns[(size_t) k].setToggleState (k == m, juce::dontSendNotification);
+    const juce::String tip[kNumEditModes] = {
+        lang.t ("Klicka = slag. Dra upp/ner = styrka. Högerklick = accent/mjuk/av.", "Click = hit. Drag up/down = velocity. Right click = accent/soft/off."),
+        lang.t ("Dra upp/ner = chans i %. Högerklick = bara med FILL / bara utan FILL.", "Drag up/down = chance in %. Right click = only with FILL / only without FILL."),
+        lang.t ("Klicka = 1, 2, 3 eller 4 slag i steget. Högerklick = av.", "Click = 1, 2, 3 or 4 hits in the step. Right click = off."),
+        lang.t ("Dra upp/ner = egen tune för steget. Dubbelklick = nollställ.", "Drag up/down = this step's own tune. Double click = reset."),
+        lang.t ("Dra upp/ner = egen decay för steget. Dubbelklick = nollställ.", "Drag up/down = this step's own decay. Double click = reset.") };
+    for (auto& l : lanes) { l->grid.setTooltip (tip[m]); l->grid.repaint(); }
 }
 
 void Root::randomiseFx()
@@ -507,6 +648,19 @@ void Root::setLang (bool english)
     for (auto* k : { &hSize, &hDecay, &hDamp, &hPre, &hLevel, &eFb, &eTone, &eWear, &eLevel, &iLow, &iMid, &iHigh, &pAmt, &pPump }) { k->resized(); k->repaint(); }
 
     for (auto& l : lanes) l->setLang (lang);
+    copyBtn.setButtonText (lang.t ("KOPIERA", "COPY")); pasteBtn.setButtonText (lang.t ("KLISTRA", "PASTE"));
+    clearBtn.setButtonText (lang.t ("RENSA", "CLEAR")); fillBtn.setButtonText ("FILL");
+    copyBtn.setTooltip (lang.t ("Kopiera mönstret på skärmen", "Copy the pattern on screen"));
+    pasteBtn.setTooltip (lang.t ("Klistra in i mönstret på skärmen", "Paste into the pattern on screen"));
+    clearBtn.setTooltip (lang.t ("Töm mönstret (KLISTRA tar tillbaka det)", "Empty the pattern (PASTE brings it back)"));
+    fillBtn.setTooltip (lang.t ("Håll inne: steg märkta FILL spelar", "Hold: steps marked FILL play"));
+    const char* mSV[kNumEditModes] = { "SLAG", "CHANS", "RULLE", "TUNE", "DECAY" };
+    const char* mEN[kNumEditModes] = { "HITS", "CHANCE", "ROLL", "TUNE", "DECAY" };
+    for (int k = 0; k < kNumEditModes; ++k) modeBtns[(size_t) k].setButtonText (lang.t (mSV[k], mEN[k]));
+    for (int i = 0; i < kNumPatterns; ++i)
+        patBtns[(size_t) i]->setTooltip (lang.t ("Mönster ", "Pattern ") + juce::String::charToString ((juce::juce_wchar) ('A' + i))
+                                         + lang.t (" (byter på nästa takt)", " (switches on the next bar)"));
+    setEditMode (editMode);
     for (auto* k : { &jitter, &drift, &fylla, &bpm, &smogAmt, &smogThr, &elnat, &master }) { k->resized(); k->repaint(); }
     repaint();
 }
@@ -553,10 +707,16 @@ void Root::resized()
     gr.setBounds (1110, 334, 30, 104);
     fxDice.setBounds (1158, 316, 24, 24);
 
-    // lanes (plate 8,470 1184x458)
+    // pattern strip (top of the lanes plate)
+    for (int i = 0; i < kNumPatterns; ++i) patBtns[(size_t) i]->setBounds (92 + i * 30, 478, 28, 24);
+    copyBtn.setBounds (344, 479, 72, 22); pasteBtn.setBounds (420, 479, 72, 22);
+    clearBtn.setBounds (496, 479, 62, 22); fillBtn.setBounds (566, 479, 62, 22);
+    for (int k = 0; k < kNumEditModes; ++k) modeBtns[(size_t) k].setBounds (728 + k * 76, 479, 72, 22);
+
+    // lanes (plate 8,470 1184x488)
     for (int i = 0; i < kNumInstruments; ++i)
-        lanes[(size_t) i]->setBounds (8, 506 + i * 42, 1184, 42);
-    slipDice.setBounds (8 + LaneRow::xMute + 11, 478, 22, 22);
+        lanes[(size_t) i]->setBounds (8, 530 + i * 42, 1184, 42);
+    slipDice.setBounds (8 + LaneRow::xMute + 11, 506, 22, 22);
 }
 
 void Root::paint (juce::Graphics& g)
@@ -589,11 +749,15 @@ void Root::paint (juce::Graphics& g)
     plate (g, { 316.f, 310.f, 300.f, 152.f }, "EKO");
     plate (g, { 624.f, 310.f, 276.f, 152.f }, "ISOLATOR");
     plate (g, { 908.f, 310.f, 284.f, 152.f }, "PRESS", true);
-    plate (g, { 8.f, 470.f, 1184.f, 458.f }, "");
+    plate (g, { 8.f, 470.f, 1184.f, 488.f }, "");
+    g.setFont (stencil (10.f)); g.setColour (C::paper.withAlpha (0.85f));
+    g.drawText (lang.t ("MÖNSTER", "PATTERN"), 22, 479, 66, 22, juce::Justification::centredLeft, false);
+    g.drawText (lang.t ("REDIGERA", "EDIT"), 652, 479, 72, 22, juce::Justification::centredRight, false);
+    g.setColour (C::steel.withAlpha (0.5f)); g.fillRect (20.f, 505.f, 1160.f, 1.f);
 
     // ---- lane header ----
     g.setFont (stencil (9.5f)); g.setColour (C::paperDim);
-    auto hdr = [&] (int x, int w, const juce::String& s) { g.drawText (s, 8 + x, 482, w, 14, juce::Justification::centred, false); };
+    auto hdr = [&] (int x, int w, const juce::String& s) { g.drawText (s, 8 + x, 510, w, 14, juce::Justification::centred, false); };
     hdr (LaneRow::xName, 92, lang.t ("KANAL", "CHANNEL"));
     for (int i = 0; i < 32; i += 4)
         hdr (LaneRow::xGrid + i * StepGrid::kCell, StepGrid::kCell, juce::String (i + 1));
@@ -617,6 +781,20 @@ void Root::tick()
     strobe.update (proc.getSlipMs(), proc.getCurrentBpm(), proc.isRunning());
     meter.setValue (proc.getCollapse());
     gr.setValue (proc.getPressGr());
+    {
+        const int view = proc.viewPattern(), playingPat = proc.playingPattern();
+        const bool blink = (juce::Time::getMillisecondCounter() / 250) % 2 == 0;
+        for (int i = 0; i < kNumPatterns; ++i)
+        {
+            auto& b = *patBtns[(size_t) i];
+            b.setToggleState (i == view, juce::dontSendNotification);
+            b.playing = proc.isRunning() && i == playingPat;
+            b.queued = proc.isRunning() && i == view && view != playingPat;
+            b.blink = blink;
+            b.repaint();
+        }
+        if (view != lastView) { lastView = view; for (auto& l : lanes) l->grid.repaint(); }
+    }
     rings.repaint();
     const float n = proc.apvts.getRawParameterValue (pid::nudge)->load();
     if (std::abs (n) > 0.01f) jog.spin (n);

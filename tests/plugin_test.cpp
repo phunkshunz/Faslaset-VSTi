@@ -2,6 +2,7 @@
 //   cmake -B build -DMOTSTAND_TESTS=ON && cmake --build build --target MotstandTest && ./build/.../MotstandTest
 #include "../src/PluginProcessor.h"
 #include <cstdio>
+#include <functional>
 
 static int failures = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { ++failures; std::printf("FAIL: "); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
@@ -49,6 +50,23 @@ static Result run (MotstandProcessor& p, double seconds, juce::MidiBuffer* midiF
     for (int k = 0; k < motstand::kNumInstruments; ++k) r.auxRms[(size_t) k] = std::sqrt (sumAux[(size_t) k] / blocks);
     return r;
 }
+
+// counts MIDI note-ons for one note (from MIDI out) over a number of seconds
+static int countNotes (MotstandProcessor& p, double seconds, int note, std::function<void (int64_t)> onBlock = {})
+{
+    juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512);
+    int count = 0;
+    for (int b = 0; b < (int) (seconds * 48000.0 / 512); ++b)
+    {
+        if (onBlock) onBlock (p.getStepIndex());
+        juce::MidiBuffer m; p.processBlock (buf, m);
+        for (const auto meta : m) if (meta.getMessage().isNoteOn() && meta.getMessage().getNoteNumber() == note) ++count;
+    }
+    return count;
+}
+
+static void setP (MotstandProcessor& p, const juce::String& id, float v)
+{ auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); }
 
 int main()
 {
@@ -195,6 +213,73 @@ int main()
         auto k = run (p, 2.0);
         std::printf ("KILL     all three bands killed: rms %.5f\n", k.mainRms);
         CHECK (k.mainRms < 0.003, "kills leak (%.4f)", k.mainRms);
+    }
+
+    // 11. CHANS: 0 % never plays, 50 % plays about half the time
+    {
+        MotstandProcessor p; p.prepareToPlay (sr, 512);
+        for (int s : { 0, 4, 8, 12 }) { auto st = p.getCell (0, motstand::KICK, s); st.chance = 0; p.setCell (0, motstand::KICK, s, st); }
+        const int never = countNotes (p, 8.0, 36);
+        MotstandProcessor q; q.prepareToPlay (sr, 512);
+        for (int s : { 0, 4, 8, 12 }) { auto st = q.getCell (0, motstand::KICK, s); st.chance = 50; q.setCell (0, motstand::KICK, s, st); }
+        const int half = countNotes (q, 30.0, 36);
+        const int full = (int) (30.0 * 133.0 / 60.0);   // kicks in 30 s at 4 per bar
+        std::printf ("CHANS    0 %%: %d kicks; 50 %%: %d of ~%d\n", never, half, full);
+        CHECK (never == 0, "chance 0 still plays");
+        CHECK (half > full * 0.35 && half < full * 0.65, "chance 50 off (%d of %d)", half, full);
+    }
+    // 12. RULLE: a 4-roll on the first kick gives 7 kicks per bar instead of 4
+    {
+        MotstandProcessor p; p.prepareToPlay (sr, 512);
+        auto st = p.getCell (0, motstand::KICK, 0); st.ratchet = 4; p.setCell (0, motstand::KICK, 0, st);
+        const double bars = 6.0, secs = bars * 4.0 * 60.0 / 133.0 - 0.05;
+        const int kicks = countNotes (p, secs, 36);
+        std::printf ("RULLE    4-roll on step 1: %d kicks in %.0f bars (expect %d)\n", kicks, bars, (int) bars * 7);
+        CHECK (std::abs (kicks - (int) bars * 7) <= 2, "ratchet count wrong (%d)", kicks);
+    }
+    // 13. Pattern change waits for the next bar (C has no kick)
+    {
+        MotstandProcessor p; p.prepareToPlay (sr, 512);
+        int64_t switchedAt = -1;
+        const int kicks = countNotes (p, 4.0, 36, [&] (int64_t step) {
+            if (switchedAt < 0 && step == 6) { setP (p, motstand::pid::pattern, 2.f); switchedAt = step; } });
+        std::printf ("MÖNSTER  switch to C at step 6: %d kicks played (steps 0,4,8,12 -> 4), playing pattern now %c\n", kicks, 'A' + p.playingPattern());
+        CHECK (kicks == 4, "pattern switched before the bar ended (%d kicks)", kicks);
+        CHECK (p.playingPattern() == 2, "pattern C never took over");
+    }
+    // 14. FILL: pattern F's snare only plays while FILL is held
+    {
+        MotstandProcessor p; setP (p, motstand::pid::pattern, 5.f); p.prepareToPlay (sr, 512);
+        const int without = countNotes (p, 6.0, 38);
+        setP (p, motstand::pid::fill, 1.f);
+        const int with = countNotes (p, 6.0, 38);
+        std::printf ("FILL     snare notes without FILL: %d, with FILL: %d\n", without, with);
+        CHECK (without == 0 && with > 5, "FILL condition wrong");
+    }
+    // 15. Locks change the sound; the whole bank survives save/load
+    {
+        auto render = [&] (int lock) {
+            MotstandProcessor p; setP (p, motstand::pid::pattern, 6.f);   // G: kick, rim, hats
+            for (int s = 0; s < 16; ++s) { auto st = p.getCell (6, motstand::KICK, s); if (st.vel) { st.tune = lock; p.setCell (6, motstand::KICK, s, st); } }
+            p.prepareToPlay (sr, 512);
+            juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512); double sum = 0;
+            for (int b = 0; b < 100; ++b) { juce::MidiBuffer m; p.processBlock (buf, m); for (int i = 0; i < 512; i += 3) sum += buf.getSample (0, i) * (double) ((i % 7) - 3); }
+            return sum;
+        };
+        const double a = render (0), b = render (24);
+        std::printf ("LÅS      tune lock changes the kick: %s\n", a != b ? "yes" : "no");
+        CHECK (a != b, "tune lock had no effect");
+
+        MotstandProcessor x; x.prepareToPlay (sr, 512);
+        motstand::Step st; st.vel = 99; st.chance = motstand::kChanceFill; st.ratchet = 3; st.tune = -7; st.decay = 11;
+        x.setCell (4, motstand::TOM_MID, 9, st);
+        juce::MemoryBlock mb; x.getStateInformation (mb);
+        MotstandProcessor y; y.setStateInformation (mb.getData(), (int) mb.getSize());
+        const auto r = y.getCell (4, motstand::TOM_MID, 9);
+        const bool same = r.vel == 99 && r.chance == motstand::kChanceFill && r.ratchet == 3 && r.tune == -7 && r.decay == 11;
+        std::printf ("BANK     step with FILL+3-roll+locks in pattern E restored: %s\n", same ? "yes" : "no");
+        CHECK (same, "bank state not restored");
+        CHECK (y.getCell (3, motstand::TOM_LO, 0).ratchet == 2, "factory pattern D lost");
     }
 
     std::printf (failures ? "\n%d FAILED\n" : "\nALL OK\n", failures);

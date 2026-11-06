@@ -37,9 +37,23 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
-    // ---- pattern (GUI writes, audio reads; one byte per cell is atomic) ----
-    uint8_t getStep (int inst, int step) const { return cells[(size_t) inst][(size_t) step].load (std::memory_order_relaxed); }
-    void setStep (int inst, int step, uint8_t vel) { cells[(size_t) inst][(size_t) step].store (vel, std::memory_order_relaxed); }
+    // ---- pattern bank (GUI writes, audio reads; one 32-bit step is atomic) ----
+    motstand::Step getCell (int pat, int inst, int step) const
+    { return motstand::Step::unpack (bank[(size_t) pat][(size_t) inst][(size_t) step].load (std::memory_order_relaxed)); }
+    void setCell (int pat, int inst, int step, const motstand::Step& st)
+    { bank[(size_t) pat][(size_t) inst][(size_t) step].store (st.pack(), std::memory_order_relaxed); }
+    int viewPattern() const     { return juce::jlimit (0, motstand::kNumPatterns - 1, (int) pPattern->load()); }
+    int playingPattern() const  { return activePat.load(); }
+    // velocity-only access to the pattern on screen (keeps chance, rolls and locks)
+    uint8_t getStep (int inst, int step) const { return (uint8_t) getCell (viewPattern(), inst, step).vel; }
+    void setStep (int inst, int step, uint8_t vel)
+    {
+        auto st = getCell (viewPattern(), inst, step);
+        if (vel == 0) st = motstand::Step::unpack (motstand::Step::rest());   // a rest forgets its extras
+        st.vel = vel; setCell (viewPattern(), inst, step, st);
+    }
+    motstand::PatternData copyPattern (int pat) const;
+    void pastePattern (int pat, const motstand::PatternData& d);
 
     // ---- meters for the GUI ----
     float getSlipMs() const      { return slipMs.load(); }
@@ -55,9 +69,14 @@ private:
     static BusesProperties makeBuses();
     void pullParameters();
     void reseed();
-    bool triggerVoice (int inst, float vel01, int sampleOffset);
+    bool triggerVoice (int inst, float vel01, int sampleOffset, int tuneLock = 0, int decayLock = 0);
 
-    std::array<std::array<std::atomic<uint8_t>, motstand::kMaxSteps>, motstand::kNumInstruments> cells;
+    std::array<std::array<std::array<std::atomic<uint32_t>, motstand::kMaxSteps>, motstand::kNumInstruments>, motstand::kNumPatterns> bank;
+    std::atomic<int> activePat { 0 };
+    motstand::Rng chanceRng;
+    struct Roll { int wait, inst, vel, tune, decay; };
+    std::array<Roll, 128> rolls {};
+    int numRolls = 0;
 
     motstand::DieZeit clock;
     motstand::Kit kit;
@@ -91,7 +110,7 @@ private:
     std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pRomMode,
         *pHallSize, *pHallDecay, *pHallDamp, *pHallPre, *pHallLevel, *pHallFreeze,
         *pEkoTime, *pEkoFb, *pEkoTone, *pEkoWear, *pEkoLevel, *pEkoPing,
-        *pIsoLow, *pIsoMid, *pIsoHigh, *pKillLow, *pKillMid, *pKillHigh, *pPress, *pPump;
+        *pIsoLow, *pIsoMid, *pIsoHigh, *pKillLow, *pKillMid, *pKillHigh, *pPress, *pPump, *pPattern, *pFill;
     float hallLevel = 0.8f, ekoLevel = 0.8f;
     std::array<float, motstand::kNumInstruments> sendH {}, sendE {};
 

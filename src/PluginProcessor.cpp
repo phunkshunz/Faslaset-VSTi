@@ -55,12 +55,26 @@ MotstandProcessor::MotstandProcessor()
     pIsoLow = P (pid::isoLow); pIsoMid = P (pid::isoMid); pIsoHigh = P (pid::isoHigh);
     pKillLow = P (pid::killLow); pKillMid = P (pid::killMid); pKillHigh = P (pid::killHigh);
     pPress = P (pid::pressAmt); pPump = P (pid::pump);
+    pPattern = P (pid::pattern); pFill = P (pid::fill);
 
-    std::array<std::array<uint8_t, kMaxSteps>, kNumInstruments> def {};
-    defaultPattern (def);
+    const auto fb = factoryBank();
+    for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, fb[(size_t) pt]);
+}
+
+PatternData MotstandProcessor::copyPattern (int pat) const
+{
+    PatternData d {};
     for (int i = 0; i < kNumInstruments; ++i)
         for (int s = 0; s < kMaxSteps; ++s)
-            setStep (i, s, def[(size_t) i][(size_t) s]);
+            d[(size_t) i][(size_t) s] = bank[(size_t) pat][(size_t) i][(size_t) s].load (std::memory_order_relaxed);
+    return d;
+}
+
+void MotstandProcessor::pastePattern (int pat, const PatternData& d)
+{
+    for (int i = 0; i < kNumInstruments; ++i)
+        for (int s = 0; s < kMaxSteps; ++s)
+            bank[(size_t) pat][(size_t) i][(size_t) s].store (d[(size_t) i][(size_t) s], std::memory_order_relaxed);
 }
 
 bool MotstandProcessor::isBusesLayoutSupported (const BusesLayout& layout) const
@@ -106,6 +120,7 @@ void MotstandProcessor::reseed()
     for (int i = 0; i < kNumInstruments; ++i)
         rider[(size_t) i].prepare (sr, (uint64_t) seed * 131u + (uint64_t) i);
     kit.setTolerance ((uint64_t) seed * 0x2545F491ull);   // this machine's own "factory errors"
+    chanceRng.setSeed ((uint64_t) seed * 7919u + 17u);   // same seed = same dice for CHANS
 }
 
 void MotstandProcessor::pullParameters()
@@ -148,14 +163,20 @@ void MotstandProcessor::pullParameters()
     masterGain          = juce::Decibels::decibelsToGain (pMaster->load());
 }
 
-bool MotstandProcessor::triggerVoice (int inst, float vel01, int sampleOffset)
+bool MotstandProcessor::triggerVoice (int inst, float vel01, int sampleOffset, int tuneLock, int decayLock)
 {
     if (ip[(size_t) inst].mute->load() > 0.5f) return false;
     const float amt = kRideBase[inst] * pRide->load();
     auto& r = rider[(size_t) inst];
     const float decayMod = r.onTrigger() * amt;
     const float tuneMod  = r.onTrigger() * amt;
+    // step locks: this hit only gets its own tune/decay (2 % of the knob per lock step)
+    auto& vp = kit.params (inst);
+    const float keepTune = vp.tune, keepDecay = vp.decay;
+    vp.tune  = juce::jlimit (0.f, 1.f, keepTune  + 0.02f * (float) tuneLock);
+    vp.decay = juce::jlimit (0.f, 1.f, keepDecay + 0.02f * (float) decayLock);
     kit.trigger (inst, vel01, tuneMod, decayMod);
+    vp.tune = keepTune; vp.decay = keepDecay;
     slip[(size_t) inst].onTrigger (vel01);
     if (inst == KICK) pump.trigger (vel01);
     if (! toAux[(size_t) inst])
@@ -203,8 +224,14 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     const bool useDaw = pTempoSrc->load() < 0.5f && hostBpm > 1.0;
     clock.baseBpm = useDaw ? hostBpm : (double) pBpm->load();
 
+    const int wantPat = viewPattern();
+    const bool fill = pFill->load() > 0.5f;
     if (playing && ! wasPlaying)
+    {
         clock.reset();                 // first hit lands on the play press
+        activePat.store (wantPat);
+    }
+    if (! playing) { activePat.store (wantPat); numRolls = 0; }
     wasPlaying = playing;
     running.store (playing);
 
@@ -256,11 +283,20 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         while (e < numEv && ev[e].sampleOffset <= s)
         {
             const int64_t step = ev[e].stepIndex;
+            if (step % 16 == 0 && wantPat != activePat.load())
+                activePat.store (wantPat);                     // pattern changes land on the next bar
+            const int pat = activePat.load();
+            const float stepLen = (float) (60.0 / clock.currentBpm() / 4.0 * sr);
             for (int i = 0; i < kNumInstruments; ++i)
             {
-                const uint8_t v = getStep (i, lanes[(size_t) i].positionAt (step));
-                if (v && triggerVoice (i, v / 127.f, s))
-                    sendOn (i, v, s);                          // MIDI out carries the Mills timing
+                const auto st = getCell (pat, i, lanes[(size_t) i].positionAt (step));
+                if (! st.plays ((float) chanceRng.uniform(), fill)) continue;
+                if (triggerVoice (i, st.vel / 127.f, s, st.tune, st.decay))
+                    sendOn (i, (uint8_t) st.vel, s);           // MIDI out carries the Mills timing
+                // RULLE: the extra hits of a roll, spread evenly inside the step
+                for (int k = 1; k < st.ratchet && numRolls < (int) rolls.size(); ++k)
+                    rolls[(size_t) numRolls++] = { (int) std::lround (k * stepLen / st.ratchet), i,
+                                                   juce::jmax (1, (int) std::lround (st.vel * std::pow (0.9f, (float) k))), st.tune, st.decay };
             }
             stepNow.store (step);
             ++e;
@@ -269,6 +305,18 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         {
             triggerVoice (midiHits[(size_t) mi].inst, midiHits[(size_t) mi].vel, s);
             ++mi;
+        }
+
+        // rolls that are due now
+        for (int r = 0; r < numRolls;)
+        {
+            auto& ro = rolls[(size_t) r];
+            if (ro.wait <= 0)
+            {
+                if (triggerVoice (ro.inst, ro.vel / 127.f, s, ro.tune, ro.decay)) sendOn (ro.inst, (uint8_t) ro.vel, s);
+                ro = rolls[(size_t) --numRolls];
+            }
+            else { --ro.wait; ++r; }
         }
 
         // note-offs
@@ -338,16 +386,18 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 void MotstandProcessor::getStateInformation (juce::MemoryBlock& dest)
 {
     auto state = apvts.copyState();
-    juce::ValueTree pat ("PATTERN");
-    for (int i = 0; i < kNumInstruments; ++i)
-    {
-        juce::String hex;
-        for (int s = 0; s < kMaxSteps; ++s)
-            hex << juce::String::toHexString ((int) getStep (i, s)).paddedLeft ('0', 2);
-        pat.setProperty (kInstId[i], hex, nullptr);
-    }
+    juce::ValueTree bk ("BANK");
+    for (int pt = 0; pt < kNumPatterns; ++pt)
+        for (int i = 0; i < kNumInstruments; ++i)
+        {
+            juce::String hex;
+            for (int s = 0; s < kMaxSteps; ++s)
+                hex << juce::String::toHexString ((juce::int64) bank[(size_t) pt][(size_t) i][(size_t) s].load()).paddedLeft ('0', 8);
+            bk.setProperty ("p" + juce::String (pt) + "_" + kInstId[i], hex, nullptr);
+        }
+    state.removeChild (state.getChildWithName ("BANK"), nullptr);
     state.removeChild (state.getChildWithName ("PATTERN"), nullptr);
-    state.appendChild (pat, nullptr);
+    state.appendChild (bk, nullptr);
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, dest);
 }
@@ -359,14 +409,30 @@ void MotstandProcessor::setStateInformation (const void* data, int size)
     auto state = juce::ValueTree::fromXml (*xml);
     if (! state.hasType (apvts.state.getType())) return;
 
-    auto pat = state.getChildWithName ("PATTERN");
+    auto bk = state.getChildWithName ("BANK");
+    if (bk.isValid())
+    {
+        for (int pt = 0; pt < kNumPatterns; ++pt)
+            for (int i = 0; i < kNumInstruments; ++i)
+            {
+                const auto hex = bk.getProperty ("p" + juce::String (pt) + "_" + kInstId[i]).toString();
+                for (int s = 0; s < kMaxSteps; ++s)
+                    bank[(size_t) pt][(size_t) i][(size_t) s].store (s * 8 + 8 <= hex.length()
+                        ? (uint32_t) hex.substring (s * 8, s * 8 + 8).getHexValue64() : Step::rest());
+            }
+        state.removeChild (bk, nullptr);
+    }
+    auto pat = state.getChildWithName ("PATTERN");   // older projects: velocities only, into A
     if (pat.isValid())
     {
         for (int i = 0; i < kNumInstruments; ++i)
         {
             const auto hex = pat.getProperty (kInstId[i]).toString();
             for (int s = 0; s < kMaxSteps && s * 2 + 1 < hex.length(); ++s)
-                setStep (i, s, (uint8_t) hex.substring (s * 2, s * 2 + 2).getHexValue32());
+            {
+                Step st; st.vel = hex.substring (s * 2, s * 2 + 2).getHexValue32();
+                setCell (0, i, s, st);
+            }
         }
         state.removeChild (pat, nullptr);
     }

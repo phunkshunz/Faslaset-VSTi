@@ -74,10 +74,13 @@ private:
 //  One lane: dice, Dymo name, 32-step grid, length, voice knobs,
 //  VINKELSLIP and mute.
 // ---------------------------------------------------------------------
+// what the step grid edits right now
+enum EditMode { kSlag = 0, kChans, kRulle, kTune, kDecay, kNumEditModes };
+
 class StepGrid : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    StepGrid (MotstandProcessor& p, int inst) : proc (p), lane (inst) {}
+    StepGrid (MotstandProcessor& p, int inst, const int& editMode) : proc (p), lane (inst), mode (editMode) {}
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
@@ -87,15 +90,36 @@ public:
 private:
     int cellAt (float x) const { return juce::jlimit (0, motstand::kMaxSteps - 1, (int) (x / kCell)); }
     MotstandProcessor& proc;
-    int lane, playhead = -1, dragCell = -1, dragStartVel = 0;
+    int lane;
+    const int& mode;
+    int playhead = -1, dragCell = -1, dragStartVel = 0;
     float dragStartY = 0.f;
     bool paintOn = true;
+};
+
+// A..H: lit = on screen, white ring = playing, blinking = waiting for the bar
+class PatternButton : public juce::Button
+{
+public:
+    PatternButton (int i) : juce::Button (juce::String::charToString ((juce::juce_wchar) ('A' + i))) {}
+    bool playing = false, queued = false, blink = false;
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (1.5f).translated (0.f, down ? 1.f : 0.f);
+        const bool sel = getToggleState();
+        g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r.translated (0.f, 1.f), 3.f);
+        g.setColour (sel ? C::tube.withAlpha (0.28f) : (over ? C::iron2.brighter (0.2f) : C::night)); g.fillRoundedRectangle (r, 3.f);
+        g.setColour (queued && blink ? C::hazard : sel ? C::tube : C::steel); g.drawRoundedRectangle (r, 3.f, sel ? 1.4f : 1.f);
+        if (playing) { g.setColour (juce::Colours::white); g.fillEllipse (r.getRight() - 6.f, r.getY() + 3.f, 3.5f, 3.5f); }
+        g.setFont (stencil (13.f)); g.setColour (sel ? C::tube : C::paperDim);
+        g.drawText (getName(), r, juce::Justification::centred, false);
+    }
 };
 
 class LaneRow : public juce::Component
 {
 public:
-    LaneRow (MotstandProcessor& p, int inst);
+    LaneRow (MotstandProcessor& p, int inst, const int& editMode);
     void paint (juce::Graphics& g) override;
     void resized() override;
     void setLang (const Lang& l);
@@ -129,7 +153,7 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     void tick();                       // 30 Hz from the editor timer
-    static constexpr int W = 1200, H = 936;
+    static constexpr int W = 1200, H = 962;
 private:
     void setLang (bool english);
     void randomiseZeit();
@@ -173,6 +197,15 @@ private:
     LabeledKnob pAmt, pPump;
     GrMeter gr;
     DiceButton fxDice;
+    // patterns + edit modes
+    int editMode = kSlag;
+    std::vector<std::unique_ptr<PatternButton>> patBtns;
+    juce::TextButton copyBtn, pasteBtn, clearBtn, fillBtn;
+    std::array<juce::TextButton, kNumEditModes> modeBtns;
+    std::unique_ptr<motstand::PatternData> clipboard;
+    void setEditMode (int m);
+    bool fillDown = false;
+    int lastView = -1;
     // lanes
     std::vector<std::unique_ptr<LaneRow>> lanes;
     DiceButton slipDice;

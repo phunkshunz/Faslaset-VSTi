@@ -74,6 +74,20 @@ Signalväg: röster → VINKELSLIP → (send HALL/EKO per kanal) → MIX → Det
 - **PRESS:** bus-kompressor med en ratt och automatisk nivå. **PUMP:** kicken duckar allt annat (upp till -14 dB).
 - Tärning för effekterna (smakfulla sends: kicken hålls torr).
 
+## Sequencern (steg 4d) — `src/Pattern.h`
+Varje steg är 32 bit (delas låsfritt mellan panel och ljud): styrka, CHANS, RULLE, TUNE-lås, DECAY-lås.
+- **CHANS:** 0–100 % per steg, eller *bara med FILL* / *bara utan FILL*. Tärningen styrs av SEED.
+- **RULLE:** 1–4 slag jämnt utspridda inne i steget (följer maskinens drivande tempo), med MIDI ut för varje.
+- **Steglås:** eget TUNE och DECAY för just det slaget (±48 % av ratten).
+- **8 mönster A–H:** byter på nästa takt (knappen blinkar medan den väntar), automatiserbart.
+  Fabriksmönster: A bas, B levande (chans + rullar), C breakdown, D tomrullar, E ride-drive,
+  F FILL-redo, G avskalat, H topp.
+- **FILL:** håll inne knappen så spelar steg märkta FILL.
+- **KOPIERA / KLISTRA / RENSA:** RENSA lägger det gamla i urklipp, så KLISTRA ångrar.
+- **Redigeringslägen** för griden: SLAG, CHANS, RULLE, TUNE, DECAY. I SLAG syns extras som små märken
+  (prickar = rulle, gult/rött hörn = chans/FILL, mörk ruta = lås).
+- Gamla projekt laddas in i mönster A.
+
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
@@ -81,7 +95,7 @@ Signalväg: röster → VINKELSLIP → (send HALL/EKO per kanal) → MIX → Det
 4a. ✅ Ljud v2: nya röster, VINKELSLIP, ELNÄT, MIDI ut
 4b. ✅ Panel i DOCKLANDS-stil (se nedan)
 4c. ✅ Studioeffekter: VARVSHALL, EKO, ISOLATOR, PRESS + PUMP, sends per kanal
-4d. Sequencer: CHANS (sannolikhet), RULLE (rullningar), steglås, 8 mönster A–H
+4d. ✅ Sequencer: CHANS, RULLE, steglås (TUNE/DECAY), 8 mönster A–H, FILL, KOPIERA/KLISTRA/RENSA
 4e. 40+ presets (kit + mönster)
 5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
 

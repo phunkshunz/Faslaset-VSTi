@@ -4,6 +4,7 @@
 #include "Voices.h"
 #include "Vinkelslip.h"
 #include "Fx.h"
+#include "Pattern.h"
 
 namespace motstand {
 
@@ -53,7 +54,7 @@ namespace pid {
         hallSize = "hallSize", hallDecay = "hallDecay", hallDamp = "hallDamp", hallPre = "hallPre", hallLevel = "hallLevel", hallFreeze = "hallFreeze",
         ekoTime = "ekoTime", ekoFeedback = "ekoFeedback", ekoTone = "ekoTone", ekoWear = "ekoWear", ekoLevel = "ekoLevel", ekoPing = "ekoPing",
         isoLow = "isoLow", isoMid = "isoMid", isoHigh = "isoHigh", killLow = "killLow", killMid = "killMid", killHigh = "killHigh",
-        pressAmt = "pressAmt", pump = "pump";
+        pressAmt = "pressAmt", pump = "pump", pattern = "pattern", fill = "fill";
 }
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
@@ -129,6 +130,11 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
           NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::pump, 1 }, "PUMP",
           NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+
+    // ---- patterns ----
+    l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::pattern, 1 }, String::fromUTF8(u8"MÖNSTER"),
+          StringArray{ "A", "B", "C", "D", "E", "F", "G", "H" }, 0));
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::fill, 1 }, "FILL", false));
 
     StringArray slipModes; for (auto* m : kSlipModeName) slipModes.add(m);
 
