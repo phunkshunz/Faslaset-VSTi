@@ -1,5 +1,5 @@
 // MOTSTÅND — renders a tour of presets through the real plugin to a WAV.
-//   MotstandTour out.wav [seconds-per-preset]
+//   MotstandTour out.wav [seconds-per-preset] [doom]
 #include "../src/PluginProcessor.h"
 #include "../src/Presets.h"
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -10,8 +10,10 @@ int main (int argc, char** argv)
     const juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile (argc > 1 ? argv[1] : "motstand_tour.wav");
     const double secs = argc > 2 ? juce::String (argv[2]).getDoubleValue() : 7.5;
     const double sr = 48000; const int bs = 512;
-    // one from every category, and a pattern change halfway through each
-    const int tour[] = { 1, 7, 13, 19, 25, 31, 37, 43, 48 };
+    // one from every category (or the end of the world with "doom"), and a pattern change halfway through each
+    const bool doom = argc > 3 && juce::String (argv[3]) == "doom";
+    const std::vector<int> tour = doom ? std::vector<int> { 49, 50, 51, 53, 54, 56, 57, 59, 61, 64 }
+                                       : std::vector<int> { 1, 7, 13, 19, 25, 31, 37, 43, 48 };
 
     juce::AudioBuffer<float> all (2, 0);
     for (int idx : tour)

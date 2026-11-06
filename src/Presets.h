@@ -1,7 +1,7 @@
 // =====================================================================
 //  MASKINHALLEN : MOTSTÅND — factory presets (step 4e)
 //
-//  49 presets: FABRIK (init) + 8 categories x 6. Each preset is a style
+//  65 presets: FABRIK (init) + 8 categories x 6 + UNDERGÅNG x 8 + PSYKOS x 8. Each preset is a style
 //  description; a deterministic generator (seeded per preset) turns it
 //  into a kit (sound models, tune/decay), VINKELSLIP, sends, effects,
 //  clock settings and a full A..H pattern bank. Same preset = same
@@ -18,7 +18,7 @@ struct Style {
     const char* cat;
     uint32_t seed;
     std::array<int8_t, kNumInstruments> models;   // KICK SNARE CLAP RIM TL TM TH CH OH RIDE
-    int8_t kick;      // 0 four, 1 ghosts, 2 broken, 3 rolling
+    int8_t kick;      // 0 four, 1 ghosts, 2 broken, 3 rolling, 4 psycho (ghost rolls + a roll into the one)
     int8_t hats;      // 0 16ths with accents, 1 offbeats only, 2 eighths, 3 sparse / random
     int8_t ride;      // 0 none, 1 eighths, 2 sixteenths, 3 quarters
     float perc;       // toms / rim / clap density 0..1
@@ -32,11 +32,16 @@ struct Style {
     float kickDecay;  // 0..1
     int8_t rom;       // 1 = 909 6-bit cymbals
     float elnat;
+    // UNDERGÅNG (left out = off)
+    float muller = 0.f, mDepth = 6.f, mFreq = 120.f, mDirt = 0.4f;
+    float motor = 0.f, rpm = 1100.f, rattle = 0.3f;
+    float storm = 0.f, stormColor = 1500.f, alarm = 0.f;
+    float doom = 0.f;
 };
 
 //                 name                cat           seed   models KICK..RIDE                 k  h  r  perc chan roll slip hall eko  hDec smog press pump jit  drift kDec rom  elnat
-inline const std::array<Style, 48>& styles() {
-    static const std::array<Style, 48> s {{
+inline const std::array<Style, 64>& styles() {
+    static const std::array<Style, 64> s {{
         // ---- DETROIT: dry, driving, 909 hands ----
         { "MOTORSTAD",        "DETROIT",     101, {0,0,0,0,0,0,0,0,0,0},                0, 0, 1, 0.55f, 0.20f, 0.10f, 0.15f, 0.15f, 0.00f, 1.6f, 0.30f, 0.25f, 0.00f, 1.5f, 0.40f, 0.50f, 0, 0.0f },
         { u8"LÖPANDE BAND",   "DETROIT",     102, {0,0,0,1,0,0,0,0,0,0},                1, 0, 0, 0.70f, 0.30f, 0.15f, 0.20f, 0.10f, 0.05f, 1.4f, 0.40f, 0.30f, 0.00f, 1.5f, 0.50f, 0.45f, 0, 0.0f },
@@ -93,6 +98,24 @@ inline const std::array<Style, 48>& styles() {
         { "MASKINFEL",        "LABB",        804, {3,2,3,2,2,2,2,3,3,3},                2, 3, 2, 0.80f, 0.50f, 0.50f, 0.70f, 0.30f, 0.30f, 3.0f, 0.90f, 0.50f, 0.30f, 1.5f, 1.00f, 0.40f, 1, 0.4f },
         { "FRYST",            "LABB",        805, {1,0,2,0,2,2,2,2,2,1},                0, 1, 3, 0.40f, 0.30f, 0.10f, 0.20f, 0.70f, 0.20f, 10.f, 0.20f, 0.20f, 0.30f, 1.0f, 0.40f, 0.70f, 0, 0.0f },
         { "KAOS",             "LABB",        806, {3,3,3,3,3,3,3,2,2,3},                2, 3, 2, 1.00f, 0.60f, 0.60f, 0.50f, 0.35f, 0.40f, 3.0f, 0.80f, 0.50f, 0.20f, 1.5f, 1.00f, 0.40f, 0, 0.2f },
+        // ---- UNDERGÅNG: Mad Max, the end of the world ----                                                                                                               muller dep  freq dirt  motor rpm   rat   storm col    alarm doom
+        { u8"ÖKENVÄGEN",      u8"UNDERGÅNG", 901, {3,0,2,2,2,2,2,3,3,1},                0, 0, 0, 0.55f, 0.20f, 0.20f, 0.50f, 0.30f, 0.20f, 4.0f, 0.60f, 0.50f, 0.30f, 1.5f, 0.70f, 0.55f, 0, 0.2f, 0.50f, 6.f, 110.f, 0.5f, 0.50f, 2200.f, 0.5f, 0.40f, 1100.f, 0.00f, 0.0f },
+        { "BENSINKRIG",       u8"UNDERGÅNG", 902, {3,3,0,3,0,0,0,3,3,0},                3, 0, 2, 0.80f, 0.20f, 0.40f, 0.60f, 0.20f, 0.10f, 2.5f, 0.70f, 0.60f, 0.35f, 1.5f, 0.80f, 0.45f, 0, 0.3f, 0.60f, 5.f, 130.f, 0.8f, 0.60f, 4200.f, 0.7f, 0.20f, 1800.f, 0.00f, 0.0f },
+        { "SISTA DAGEN",      u8"UNDERGÅNG", 903, {1,0,2,0,2,2,2,0,0,1},                0, 1, 0, 0.40f, 0.20f, 0.10f, 0.30f, 0.50f, 0.20f, 7.0f, 0.40f, 0.40f, 0.30f, 1.0f, 0.50f, 0.75f, 0, 0.0f, 0.70f, 9.f, 90.f,  0.5f, 0.00f, 1100.f, 0.3f, 0.30f, 900.f,  0.60f, 0.0f },
+        { "ASKREGN",          u8"UNDERGÅNG", 904, {1,3,2,0,0,0,0,2,2,3},                0, 3, 1, 0.40f, 0.40f, 0.10f, 0.30f, 0.60f, 0.30f, 8.0f, 0.40f, 0.40f, 0.25f, 1.0f, 0.60f, 0.70f, 0, 0.3f, 0.50f, 8.f, 100.f, 0.4f, 0.00f, 1100.f, 0.3f, 0.70f, 800.f,  0.00f, 0.0f },
+        { "RADIOAKTIV",       u8"UNDERGÅNG", 905, {3,3,3,2,0,0,0,2,2,3},                2, 0, 2, 0.60f, 0.40f, 0.30f, 0.60f, 0.30f, 0.40f, 3.0f, 0.70f, 0.50f, 0.30f, 1.5f, 0.90f, 0.45f, 1, 0.6f, 0.40f, 5.f, 140.f, 0.7f, 0.00f, 1100.f, 0.3f, 0.30f, 3500.f, 0.30f, 0.0f },
+        { u8"DÖDSKÖRNING",    u8"UNDERGÅNG", 906, {2,0,0,3,1,1,1,3,3,0},                3, 0, 2, 0.90f, 0.20f, 0.50f, 0.60f, 0.15f, 0.20f, 2.0f, 0.70f, 0.60f, 0.60f, 1.5f, 0.70f, 0.35f, 0, 0.2f, 0.50f, 4.f, 150.f, 0.6f, 0.70f, 6000.f, 0.6f, 0.20f, 2500.f, 0.00f, 0.0f },
+        { u8"EVIGT MÖRKER",   u8"UNDERGÅNG", 907, {1,0,2,1,2,2,2,2,2,1},                0, 1, 0, 0.30f, 0.30f, 0.10f, 0.40f, 0.50f, 0.20f, 10.f, 0.50f, 0.40f, 0.30f, 1.0f, 0.50f, 0.85f, 0, 0.2f, 0.90f, 12.f, 70.f, 0.6f, 0.00f, 1100.f, 0.3f, 0.20f, 600.f,  0.00f, 0.3f },
+        { u8"VÄRLDENS ÄNDE",  u8"UNDERGÅNG", 908, {3,3,3,2,2,2,2,3,3,1},                3, 0, 2, 0.90f, 0.40f, 0.50f, 0.70f, 0.40f, 0.30f, 5.0f, 0.90f, 0.60f, 0.40f, 1.5f, 1.00f, 0.55f, 1, 0.6f, 0.70f, 7.f, 120.f, 0.9f, 0.40f, 3200.f, 0.8f, 0.50f, 1500.f, 0.40f, 0.8f },
+        // ---- PSYKOS: rysligt fet psykos-techno ----
+        { "PSYKOS",           "PSYKOS",     1001, {3,0,0,0,0,0,0,0,0,0},                4, 0, 2, 0.70f, 0.30f, 0.30f, 0.50f, 0.15f, 0.10f, 2.0f, 0.60f, 0.60f, 0.40f, 1.5f, 0.60f, 0.50f, 0, 0.0f, 0.70f, 5.f, 130.f, 0.7f },
+        { u8"FEBERDRÖM",      "PSYKOS",     1002, {3,0,2,1,2,2,2,0,0,0},                4, 2, 1, 0.60f, 0.60f, 0.20f, 0.40f, 0.30f, 0.20f, 3.0f, 0.50f, 0.50f, 0.30f, 1.5f, 0.80f, 0.55f, 0, 0.0f, 0.60f, 5.f, 110.f, 0.6f },
+        { "PARANOIA",         "PSYKOS",     1003, {2,0,0,3,0,0,0,3,3,0},                4, 0, 2, 0.80f, 0.40f, 0.50f, 0.50f, 0.15f, 0.30f, 2.0f, 0.60f, 0.60f, 0.40f, 1.5f, 0.70f, 0.40f, 0, 0.0f, 0.60f, 4.f, 140.f, 0.7f },
+        { u8"SÖMNLÖS",        "PSYKOS",     1004, {2,0,0,0,0,0,0,0,0,0},                4, 0, 1, 0.60f, 0.25f, 0.30f, 0.60f, 0.10f, 0.10f, 1.5f, 0.70f, 0.70f, 0.50f, 1.5f, 0.50f, 0.40f, 0, 0.0f, 0.80f, 4.f, 160.f, 0.8f },
+        { "HALLUCINOS",       "PSYKOS",     1005, {3,0,0,1,2,2,2,3,3,1},                4, 3, 2, 0.70f, 0.60f, 0.30f, 0.40f, 0.30f, 0.40f, 3.5f, 0.50f, 0.50f, 0.30f, 1.5f, 0.90f, 0.50f, 0, 0.0f, 0.60f, 6.f, 120.f, 0.6f },
+        { "MANI",             "PSYKOS",     1006, {3,0,0,0,1,1,1,0,0,0},                3, 0, 2, 0.90f, 0.30f, 0.50f, 0.60f, 0.15f, 0.10f, 2.0f, 0.70f, 0.70f, 0.40f, 1.5f, 0.70f, 0.40f, 0, 0.0f, 0.50f, 5.f, 130.f, 0.6f },
+        { "ISOLERING",        "PSYKOS",     1007, {2,0,0,1,0,0,0,1,1,0},                4, 1, 0, 0.40f, 0.30f, 0.20f, 0.40f, 0.20f, 0.10f, 2.0f, 0.50f, 0.50f, 0.40f, 1.0f, 0.40f, 0.45f, 0, 0.0f, 0.90f, 6.f, 100.f, 0.7f },
+        { "SKRIK",            "PSYKOS",     1008, {3,3,3,2,0,0,0,3,3,0},                4, 0, 2, 0.80f, 0.40f, 0.40f, 0.80f, 0.20f, 0.20f, 2.5f, 0.80f, 0.60f, 0.40f, 1.5f, 0.80f, 0.45f, 0, 0.3f, 0.60f, 5.f, 140.f, 0.8f, 0.00f, 1100.f, 0.3f, 0.00f, 1500.f, 0.20f, 0.2f },
     }};
     return s;
 }
@@ -135,6 +158,11 @@ inline PatternData base (const Style& st, Gen& g, std::array<int, kNumInstrument
     if (st.kick == 1) { A[KICK][(size_t) (g.p (0.5f) ? 14 : 10)] = hit (g.i (60, 80), g.i (40, 70)); if (g.p (0.5f)) A[KICK][3] = hit (g.i (55, 70), 50); }
     if (st.kick == 2) { A[KICK][8] = Step::rest(); A[KICK][(size_t) (g.p (0.5f) ? 10 : 11)] = hit (118); if (g.p (0.6f)) A[KICK][7] = hit (90, 70); }
     if (st.kick == 3) { for (int s : { 3, 7, 11, 15 }) if (g.p (0.55f)) A[KICK][(size_t) s] = hit (g.i (55, 80), chanceFor (100)); }
+    if (st.kick == 4)   // PSYKOS: rolling ghost kicks between the four, and a roll into the one
+    {
+        for (int s : { 2, 3, 6, 7, 10, 11, 14 }) if (g.p (0.6f)) A[KICK][(size_t) s] = hit (g.i (45, 70), g.i (55, 90));
+        A[KICK][15] = hit (g.i (70, 90), 100, g.p (0.5f) ? 2 : 3);
+    }
 
     // hats
     if (st.hats == 0)
@@ -273,6 +301,11 @@ inline Bank applyStyle (const Style& st, const std::function<void (const juce::S
     set (pid::romMode, (float) st.rom);
     set (pid::elnat, st.elnat);
     set (pid::seed, (float) (1 + st.seed % 9999));
+    // UNDERGÅNG
+    set (pid::mullerAmt, st.muller); set (pid::mullerDepth, st.mDepth); set (pid::mullerFreq, st.mFreq); set (pid::mullerDirt, st.mDirt);
+    set (pid::motorGas, st.motor); set (pid::motorRpm, st.rpm); set (pid::motorRattle, st.rattle);
+    set (pid::stormAmt, st.storm); set (pid::stormColor, st.stormColor); set (pid::alarm, st.alarm);
+    set (pid::doom, st.doom);
     return bank;
 }
 

@@ -157,7 +157,7 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     void tick();                       // 30 Hz from the editor timer
-    static constexpr int W = 1200, H = 962;
+    static constexpr int W = 1200, H = 988;
 private:
     void setLang (bool english);
     void randomiseZeit();
@@ -204,6 +204,17 @@ private:
     LabeledKnob pAmt, pPump;
     GrMeter gr;
     DiceButton fxDice;
+    // UNDERGÅNG page
+    juce::TextButton tabStudio, tabDoom;
+    int fxPage = 0;
+    void setFxPage (int p);
+    LabeledKnob mAmt, mDepth, mFreq, mDirt, mPump;        // MULLER
+    LabeledKnob oGas, oRpm, oTone, oRattle;               // MOTOR
+    LabeledKnob sAmt, sSweep, sColor, sAlarm;             // STORM
+    LabeledKnob doomKnob;                                 // UNDERGÅNG
+    DiceButton doomDice;
+    void randomiseDoom();
+    float lastDoom = -1.f;
     // patterns + edit modes
     int editMode = kSlag;
     std::vector<std::unique_ptr<PatternButton>> patBtns;

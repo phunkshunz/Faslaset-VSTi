@@ -1,4 +1,4 @@
-// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [sv|en] [scale] [pattern 0-7] [preset 0-48]
+// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [sv|en] [scale] [pattern 0-7] [preset] [doom]
 #include "../src/PluginProcessor.h"
 #include "../src/PluginEditor.h"
 
@@ -10,6 +10,7 @@ int main (int argc, char** argv)
     const float scale = argc > 3 ? juce::String (argv[3]).getFloatValue() : 1.f;
     const int pattern = argc > 4 ? juce::String (argv[4]).getIntValue() : 0;     // 0..7 = A..H
     const int preset  = argc > 5 ? juce::String (argv[5]).getIntValue() : 0;     // 0 = FABRIK
+    const bool doomPage = argc > 6 && juce::String (argv[6]) == "doom";            // show the UNDERGÅNG tab
 
     MotstandProcessor p;
     if (preset > 0) p.loadPreset (preset);
@@ -28,6 +29,11 @@ int main (int argc, char** argv)
     for (int b = 0; b < 300; ++b) { juce::MidiBuffer m; p.processBlock (buf, m); }   // ~3 s of playing
 
     std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+    if (doomPage)   // click the tab, like a user would
+        for (auto* c : ed->getChildren())
+            for (auto* cc : c->getChildren())
+                if (auto* b = dynamic_cast<juce::TextButton*> (cc))
+                    if (b->getButtonText() == juce::String::fromUTF8 (u8"UNDERGÅNG") || b->getButtonText() == "DOOM") b->triggerClick();
     ed->setSize (juce::roundToInt (dock::Root::W * scale), juce::roundToInt (dock::Root::H * scale));
     for (int i = 0; i < 20; ++i) { juce::MidiBuffer m; p.processBlock (buf, m); if (auto* me = dynamic_cast<MotstandEditor*> (ed.get())) juce::ignoreUnused (me); }
     // let the editor tick a few times so meters and strobe settle

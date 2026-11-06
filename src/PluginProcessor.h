@@ -93,6 +93,9 @@ private:
     motstand::Isolator iso;
     motstand::Press press;
     motstand::Pump pump;
+    motstand::Muller muller;
+    motstand::Motor motor;
+    motstand::Storm storm;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
 
     // MIDI out: note-offs waiting to be sent (one per instrument is enough)
@@ -113,7 +116,9 @@ private:
     std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pRomMode,
         *pHallSize, *pHallDecay, *pHallDamp, *pHallPre, *pHallLevel, *pHallFreeze,
         *pEkoTime, *pEkoFb, *pEkoTone, *pEkoWear, *pEkoLevel, *pEkoPing,
-        *pIsoLow, *pIsoMid, *pIsoHigh, *pKillLow, *pKillMid, *pKillHigh, *pPress, *pPump, *pPattern, *pFill;
+        *pIsoLow, *pIsoMid, *pIsoHigh, *pKillLow, *pKillMid, *pKillHigh, *pPress, *pPump, *pPattern, *pFill,
+        *pMuller, *pMullerDepth, *pMullerFreq, *pMullerDirt, *pMullerPump,
+        *pMotorGas, *pMotorRpm, *pMotorTone, *pMotorRattle, *pStorm, *pStormSweep, *pStormColor, *pAlarm, *pDoom;
     float hallLevel = 0.8f, ekoLevel = 0.8f;
     std::array<float, motstand::kNumInstruments> sendH {}, sendE {};
 

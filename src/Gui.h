@@ -225,13 +225,14 @@ public:
         const float cx = bounds.getCentreX(), cy = bounds.getCentreY();
         const float ang = a0 + pos * (a1 - a0);
         const bool hot = s.isMouseOverOrDragging();
+        const auto lit = s.getProperties().contains ("doom") ? C::alarm : C::tube;   // the UNDERGÅNG knob burns red
 
         // track
         juce::Path track; track.addCentredArc (cx, cy, r - 1.f, r - 1.f, 0.f, a0, a1, true);
         g.setColour (C::night); g.strokePath (track, juce::PathStrokeType (2.6f));
         juce::Path val; val.addCentredArc (cx, cy, r - 1.f, r - 1.f, 0.f, a0, ang, true);
-        g.setColour (C::tube.withAlpha (0.25f)); g.strokePath (val, juce::PathStrokeType (5.f));
-        g.setColour (C::tube); g.strokePath (val, juce::PathStrokeType (2.f));
+        g.setColour (lit.withAlpha (0.25f)); g.strokePath (val, juce::PathStrokeType (5.f));
+        g.setColour (lit); g.strokePath (val, juce::PathStrokeType (2.f));
 
         // body
         const float kr = r * 0.74f;
@@ -253,8 +254,8 @@ public:
         // indicator
         const float ix = cx + std::sin (ang) * kr * 0.9f, iy = cy - std::cos (ang) * kr * 0.9f;
         const float jx = cx + std::sin (ang) * kr * 0.3f, jy = cy - std::cos (ang) * kr * 0.3f;
-        g.setColour (C::tube.withAlpha (0.35f)); g.drawLine (jx, jy, ix, iy, 4.f);
-        g.setColour (C::tube); g.drawLine (jx, jy, ix, iy, 1.8f);
+        g.setColour (lit.withAlpha (0.35f)); g.drawLine (jx, jy, ix, iy, 4.f);
+        g.setColour (lit); g.drawLine (jx, jy, ix, iy, 1.8f);
     }
 
     // lamp-style toggles (TYST, MIDI UT, DAW/EGET)

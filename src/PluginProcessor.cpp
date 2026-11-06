@@ -58,6 +58,11 @@ MotstandProcessor::MotstandProcessor()
     pKillLow = P (pid::killLow); pKillMid = P (pid::killMid); pKillHigh = P (pid::killHigh);
     pPress = P (pid::pressAmt); pPump = P (pid::pump);
     pPattern = P (pid::pattern); pFill = P (pid::fill);
+    pMuller = P (pid::mullerAmt); pMullerDepth = P (pid::mullerDepth); pMullerFreq = P (pid::mullerFreq);
+    pMullerDirt = P (pid::mullerDirt); pMullerPump = P (pid::mullerPump);
+    pMotorGas = P (pid::motorGas); pMotorRpm = P (pid::motorRpm); pMotorTone = P (pid::motorTone); pMotorRattle = P (pid::motorRattle);
+    pStorm = P (pid::stormAmt); pStormSweep = P (pid::stormSweep); pStormColor = P (pid::stormColor);
+    pAlarm = P (pid::alarm); pDoom = P (pid::doom);
 
     const auto fb = factoryBank();
     for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, fb[(size_t) pt]);
@@ -103,6 +108,7 @@ void MotstandProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     for (auto& v : slip) v.prepare (sr);
     elnat.prepare (sr);
     hall.prepare (sr); eko.prepare (sr); iso.prepare (sr); press.prepare (sr); pump.prepare (sr);
+    muller.prepare (sr); motor.prepare (sr); storm.prepare (sr);
     // every channel goes through VINKELSLIP's fixed delay, the MIX also through Smog's oversampling
     setLatencySamples (Vinkelslip::kLatency + juce::roundToInt (oversampler->getLatencyInSamples()));
     mixBuffer.setSize (2, samplesPerBlock);
@@ -153,6 +159,12 @@ void MotstandProcessor::pullParameters()
     iso.mid  = isoGain (pIsoMid->load(),  pKillMid->load()  > 0.5f);
     iso.high = isoGain (pIsoHigh->load(), pKillHigh->load() > 0.5f);
     press.amount = pPress->load(); pump.amount = pPump->load();
+
+    muller.amount = pMuller->load(); muller.depth = pMullerDepth->load(); muller.freq = pMullerFreq->load();
+    muller.dirt = pMullerDirt->load(); muller.pump = pMullerPump->load();
+    motor.gas = pMotorGas->load(); motor.rpm = pMotorRpm->load(); motor.tone = pMotorTone->load(); motor.rattle = pMotorRattle->load();
+    storm.amount = pStorm->load(); storm.sweep = pStormSweep->load(); storm.color = pStormColor->load(); storm.alarm = pAlarm->load();
+
     elnat.amount = pElnat->load();
     kit.setRomBits (pRomMode->load() > 0.5f ? 6 : 0);
     sendMidi = pMidiOut->load() > 0.5f;
@@ -164,6 +176,20 @@ void MotstandProcessor::pullParameters()
     smog.amount         = pSmog->load();
     smog.threshold      = pSmogThr->load();
     masterGain          = juce::Decibels::decibelsToGain (pMaster->load());
+
+    // UNDERGÅNG: one knob that drags the whole machine towards the end of the world
+    if (const float m = pDoom->load(); m > 0.f)
+    {
+        smog.amount  = std::max (smog.amount, m * 0.9f);
+        smog.threshold = std::min (smog.threshold, 3.5f - m * 1.2f);
+        press.amount = juce::jlimit (0.f, 1.f, press.amount + m * 0.55f);
+        pump.amount  = std::max (pump.amount, m * 0.5f);
+        muller.amount = std::max (muller.amount, m * 0.75f);
+        muller.dirt   = std::max (muller.dirt, m * 0.8f);
+        storm.amount  = std::max (storm.amount, m * 0.3f);
+        for (auto& v : slip) v.drive = juce::jlimit (0.f, 1.f, v.drive + m * 0.45f);
+        masterGain *= 1.f + m * 0.9f;      // the squeeze costs level; give it back (about +5.6 dB at full)
+    }
 }
 
 bool MotstandProcessor::triggerVoice (int inst, float vel01, int sampleOffset, int tuneLock, int decayLock)
@@ -181,7 +207,7 @@ bool MotstandProcessor::triggerVoice (int inst, float vel01, int sampleOffset, i
     kit.trigger (inst, vel01, tuneMod, decayMod);
     vp.tune = keepTune; vp.decay = keepDecay;
     slip[(size_t) inst].onTrigger (vel01);
-    if (inst == KICK) pump.trigger (vel01);
+    if (inst == KICK) { pump.trigger (vel01); muller.onKick (vel01); }
     if (! toAux[(size_t) inst])
         smog.addTransient (sampleOffset * 2, vel01);   // smog runs at 2x
     return true;
@@ -344,6 +370,15 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             hIL += l * sendH[(size_t) i]; hIR += r * sendH[(size_t) i];
             eIL += l * sendE[(size_t) i]; eIR += r * sendE[(size_t) i];
         }
+        // UNDERGÅNG layers: rumble from the kick, the V8, the sandstorm, the siren in the distance
+        const float rumble = muller.process (o[KICK]);
+        float motL, motR, stL, stR, siren;
+        motor.process (motL, motR);
+        storm.process (stL, stR, siren);
+        mixL[s] += rumble + (motL + stL + siren * 0.35f) * pg;
+        mixR[s] += rumble + (motR + stR + siren * 0.35f) * pg;
+        hIL += siren * 0.8f; hIR += siren * 0.8f;          // the siren is far away: mostly hall
+
         float hl, hr, el, er;
         hall.process (hIL, hIR, hl, hr);
         eko.process (eIL, eIR, el, er);
@@ -468,8 +503,8 @@ void MotstandProcessor::loadPreset (int index)
         if (auto* rp = apvts.getParameter (id))
         { rp->beginChangeGesture(); rp->setValueNotifyingHost (rp->convertTo0to1 (plain)); rp->endChangeGesture(); }
     };
-    const auto bank = applyStyle (styles()[(size_t) index - 1], set);
-    for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, bank[(size_t) pt]);
+    const auto generated = applyStyle (styles()[(size_t) index - 1], set);
+    for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, generated[(size_t) pt]);
 }
 
 juce::AudioProcessorEditor* MotstandProcessor::createEditor()

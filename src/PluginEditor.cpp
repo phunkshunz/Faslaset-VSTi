@@ -535,6 +535,23 @@ Root::Root (MotstandProcessor& p)
     addAndMakeVisible (fxDice);
     fxDice.onClick = [this] { randomiseFx(); };
 
+    // ---- UNDERGÅNG page ----
+    knob (mAmt, pid::mullerAmt); knob (mDepth, pid::mullerDepth); knob (mFreq, pid::mullerFreq);
+    knob (mDirt, pid::mullerDirt); knob (mPump, pid::mullerPump);
+    knob (oGas, pid::motorGas); knob (oRpm, pid::motorRpm); knob (oTone, pid::motorTone); knob (oRattle, pid::motorRattle);
+    knob (sAmt, pid::stormAmt); knob (sSweep, pid::stormSweep); knob (sColor, pid::stormColor); knob (sAlarm, pid::alarm);
+    knob (doomKnob, pid::doom);
+    doomKnob.slider.getProperties().set ("doom", true);
+    addAndMakeVisible (doomDice);
+    doomDice.onClick = [this] { randomiseDoom(); };
+    for (auto* t : { &tabStudio, &tabDoom })
+    {
+        t->setClickingTogglesState (true); t->setRadioGroupId (8008); addAndMakeVisible (*t);
+    }
+    tabStudio.onClick = [this] { setFxPage (0); };
+    tabDoom.onClick   = [this] { setFxPage (1); };
+    setFxPage (0);
+
     // ---- patterns A..H, copy/paste/clear, FILL, edit modes ----
     for (int i = 0; i < kNumPatterns; ++i)
     {
@@ -620,6 +637,38 @@ void Root::setEditMode (int m)
         lang.t ("Dra upp/ner = egen tune för steget. Dubbelklick = nollställ.", "Drag up/down = this step's own tune. Double click = reset."),
         lang.t ("Dra upp/ner = egen decay för steget. Dubbelklick = nollställ.", "Drag up/down = this step's own decay. Double click = reset.") };
     for (auto& l : lanes) { l->grid.setTooltip (tip[m]); l->grid.repaint(); }
+}
+
+void Root::setFxPage (int p)
+{
+    fxPage = p;
+    tabStudio.setToggleState (p == 0, juce::dontSendNotification);
+    tabDoom.setToggleState (p == 1, juce::dontSendNotification);
+    for (auto* c : std::initializer_list<juce::Component*> { &hSize, &hDecay, &hDamp, &hPre, &hLevel, &hFreeze, &eTime, &ePing,
+                                                             &eFb, &eTone, &eWear, &eLevel, &iLow, &iMid, &iHigh, &kLow, &kMid, &kHigh,
+                                                             &pAmt, &pPump, &gr, &fxDice })
+        c->setVisible (p == 0);
+    for (auto* c : std::initializer_list<juce::Component*> { &mAmt, &mDepth, &mFreq, &mDirt, &mPump, &oGas, &oRpm, &oTone, &oRattle,
+                                                             &sAmt, &sSweep, &sColor, &sAlarm, &doomKnob, &doomDice })
+        c->setVisible (p == 1);
+    repaint();
+}
+
+void Root::randomiseDoom()
+{
+    juce::Random r;
+    setParam (pid::mullerAmt, 0.3f + r.nextFloat() * 0.6f);
+    setParam (pid::mullerDepth, 3.f + r.nextFloat() * 8.f);
+    setParam (pid::mullerFreq, 70.f + r.nextFloat() * 150.f);
+    setParam (pid::mullerDirt, 0.2f + r.nextFloat() * 0.7f);
+    setParam (pid::motorGas, r.nextFloat() < 0.5f ? r.nextFloat() * 0.6f : 0.f);
+    setParam (pid::motorRpm, 700.f + r.nextFloat() * 3500.f);
+    setParam (pid::motorTone, 80.f + r.nextFloat() * 200.f);
+    setParam (pid::motorRattle, r.nextFloat());
+    setParam (pid::stormAmt, r.nextFloat() * 0.6f);
+    setParam (pid::stormSweep, r.nextFloat());
+    setParam (pid::stormColor, 500.f + r.nextFloat() * 3500.f);
+    setParam (pid::alarm, r.nextFloat() < 0.3f ? r.nextFloat() * 0.6f : 0.f);
 }
 
 void Root::randomiseFx()
@@ -708,6 +757,20 @@ void Root::setLang (bool english)
     fxDice.setTooltip (lang.t ("Slumpa effekterna och sends", "Randomise the effects and sends"));
     for (auto* k : { &hSize, &hDecay, &hDamp, &hPre, &hLevel, &eFb, &eTone, &eWear, &eLevel, &iLow, &iMid, &iHigh, &pAmt, &pPump }) { k->resized(); k->repaint(); }
 
+    tabStudio.setButtonText ("STUDIO"); tabDoom.setButtonText (lang.t ("UNDERGÅNG", "DOOM"));
+    tabDoom.setTooltip (lang.t ("Mad Max och jordens undergång", "Mad Max and the end of the world"));
+    mAmt.text = lang.t ("MÄNGD", "AMOUNT"); mDepth.text = lang.t ("DJUP", "DEPTH"); mFreq.text = lang.t ("FREKVENS", "FREQ");
+    mDirt.text = lang.t ("SMUTS", "DIRT"); mPump.text = "PUMP";
+    mAmt.slider.setTooltip (lang.t ("Kicken matas in i en mörk jättehall: hardtechno-muller", "The kick feeds a huge dark hall: hard techno rumble"));
+    oGas.text = "GAS"; oRpm.text = lang.t ("VARV", "RPM"); oTone.text = lang.t ("KLANG", "TONE"); oRattle.text = lang.t ("RASSEL", "RATTLE");
+    oGas.slider.setTooltip (lang.t ("En V8 med ojämn tändföljd. Vänster bank vänster, höger bank höger.", "A cross-plane V8. Left bank left, right bank right."));
+    sAmt.text = lang.t ("SAND", "SAND"); sSweep.text = lang.t ("SVEP", "SWEEP"); sColor.text = lang.t ("FÄRG", "COLOUR"); sAlarm.text = lang.t ("LARM", "SIREN");
+    sAlarm.slider.setTooltip (lang.t ("Flyglarm långt bort, i hallen", "An air-raid siren far away, in the hall"));
+    doomKnob.text = lang.t ("UNDERGÅNG", "DOOM");
+    doomKnob.slider.setTooltip (lang.t ("En ratt: Smog, Press, VINKELSLIP, muller, storm och pump på en gång", "One knob: Smog, Press, VINKELSLIP, rumble, storm and pump at once"));
+    doomDice.setTooltip (lang.t ("Slumpa undergången", "Randomise the doom"));
+    for (auto* k : { &mAmt, &mDepth, &mFreq, &mDirt, &mPump, &oGas, &oRpm, &oTone, &oRattle, &sAmt, &sSweep, &sColor, &sAlarm, &doomKnob }) { k->resized(); k->repaint(); }
+
     for (auto& l : lanes) l->setLang (lang);
     copyBtn.setButtonText (lang.t ("KOPIERA", "COPY")); pasteBtn.setButtonText (lang.t ("KLISTRA", "PASTE"));
     clearBtn.setButtonText (lang.t ("RENSA", "CLEAR")); fillBtn.setButtonText ("FILL");
@@ -756,31 +819,44 @@ void Root::resized()
     elnat.setBounds (1056, 160, 60, 72);  master.setBounds (1120, 160, 60, 72);
     smogDice.setBounds (1152, 58, 24, 24);
 
-    // VARVSHALL (plate 8,310 300x152)
-    { int x = 18; for (auto* k : { &hSize, &hDecay, &hDamp, &hPre, &hLevel }) { k->setBounds (x, 340, 56, 70); x += 56; } }
-    hFreeze.setBounds (18, 420, 72, 22);
-    // EKO (plate 316,310 300x152)
-    eTime.setBounds (328, 344, 70, 22);
-    ePing.setBounds (328, 378, 70, 22);
-    { int x = 404; for (auto* k : { &eFb, &eTone, &eWear, &eLevel }) { k->setBounds (x, 340, 52, 70); x += 52; } }
-    // ISOLATOR (plate 624,310 276x152)
-    { int x = 640; for (auto* k : { &iLow, &iMid, &iHigh }) { k->setBounds (x, 334, 76, 82); x += 84; } }
-    kLow.setBounds (652, 422, 52, 20); kMid.setBounds (736, 422, 52, 20); kHigh.setBounds (820, 422, 52, 20);
-    // PRESS (plate 908,310 284x152)
-    pAmt.setBounds (926, 334, 76, 82); pPump.setBounds (1010, 334, 76, 82);
-    gr.setBounds (1110, 334, 30, 104);
-    fxDice.setBounds (1158, 316, 24, 24);
+    // page tabs
+    tabStudio.setBounds (12, 307, 104, 24);
+    tabDoom.setBounds (120, 307, 124, 24);
+
+    constexpr int fy = 336;   // FX row top
+    // VARVSHALL (plate 8,fy 300x152)
+    { int x = 18; for (auto* k : { &hSize, &hDecay, &hDamp, &hPre, &hLevel }) { k->setBounds (x, fy + 30, 56, 70); x += 56; } }
+    hFreeze.setBounds (18, fy + 110, 72, 22);
+    // EKO (plate 316,fy 300x152)
+    eTime.setBounds (328, fy + 34, 70, 22);
+    ePing.setBounds (328, fy + 68, 70, 22);
+    { int x = 404; for (auto* k : { &eFb, &eTone, &eWear, &eLevel }) { k->setBounds (x, fy + 30, 52, 70); x += 52; } }
+    // ISOLATOR (plate 624,fy 276x152)
+    { int x = 640; for (auto* k : { &iLow, &iMid, &iHigh }) { k->setBounds (x, fy + 24, 76, 82); x += 84; } }
+    kLow.setBounds (652, fy + 112, 52, 20); kMid.setBounds (736, fy + 112, 52, 20); kHigh.setBounds (820, fy + 112, 52, 20);
+    // PRESS (plate 908,fy 284x152)
+    pAmt.setBounds (926, fy + 24, 76, 82); pPump.setBounds (1010, fy + 24, 76, 82);
+    gr.setBounds (1110, fy + 24, 30, 104);
+    fxDice.setBounds (1158, fy + 6, 24, 24);
+
+    // UNDERGÅNG page, same plates
+    { int x = 18; for (auto* k : { &mAmt, &mDepth, &mFreq, &mDirt, &mPump }) { k->setBounds (x, fy + 34, 56, 74); x += 56; } }
+    { int x = 330; for (auto* k : { &oGas, &oRpm, &oTone, &oRattle }) { k->setBounds (x, fy + 30, 68, 82); x += 68; } }
+    { int x = 636; for (auto* k : { &sAmt, &sSweep, &sColor, &sAlarm }) { k->setBounds (x, fy + 30, 64, 82); x += 64; } }
+    doomKnob.setBounds (990, fy + 20, 120, 128);
+    doomDice.setBounds (1158, fy + 6, 24, 24);
 
     // pattern strip (top of the lanes plate)
-    for (int i = 0; i < kNumPatterns; ++i) patBtns[(size_t) i]->setBounds (92 + i * 30, 478, 28, 24);
-    copyBtn.setBounds (344, 479, 72, 22); pasteBtn.setBounds (420, 479, 72, 22);
-    clearBtn.setBounds (496, 479, 62, 22); fillBtn.setBounds (566, 479, 62, 22);
-    for (int k = 0; k < kNumEditModes; ++k) modeBtns[(size_t) k].setBounds (728 + k * 76, 479, 72, 22);
+    constexpr int ly = 496;   // lanes plate top
+    for (int i = 0; i < kNumPatterns; ++i) patBtns[(size_t) i]->setBounds (92 + i * 30, ly + 8, 28, 24);
+    copyBtn.setBounds (344, ly + 9, 72, 22); pasteBtn.setBounds (420, ly + 9, 72, 22);
+    clearBtn.setBounds (496, ly + 9, 62, 22); fillBtn.setBounds (566, ly + 9, 62, 22);
+    for (int k = 0; k < kNumEditModes; ++k) modeBtns[(size_t) k].setBounds (728 + k * 76, ly + 9, 72, 22);
 
-    // lanes (plate 8,470 1184x488)
+    // lanes
     for (int i = 0; i < kNumInstruments; ++i)
-        lanes[(size_t) i]->setBounds (8, 530 + i * 42, 1184, 42);
-    slipDice.setBounds (8 + LaneRow::xMute + 11, 506, 22, 22);
+        lanes[(size_t) i]->setBounds (8, ly + 60 + i * 42, 1184, 42);
+    slipDice.setBounds (8 + LaneRow::xMute + 11, ly + 36, 22, 22);
 }
 
 void Root::paint (juce::Graphics& g)
@@ -808,19 +884,32 @@ void Root::paint (juce::Graphics& g)
     plate (g, { 8.f, 52.f, 396.f, 250.f }, "DIE ZEIT");
     plate (g, { 412.f, 52.f, 376.f, 250.f }, lang.t ("RINGARNA", "THE RINGS"));
     plate (g, { 796.f, 52.f, 396.f, 250.f }, "DETROIT SMOG", true);
-    plate (g, { 8.f, 310.f, 300.f, 152.f }, "VARVSHALL");
-    plate (g, { 316.f, 310.f, 300.f, 152.f }, "EKO");
-    plate (g, { 624.f, 310.f, 276.f, 152.f }, "ISOLATOR");
-    plate (g, { 908.f, 310.f, 284.f, 152.f }, "PRESS", true);
-    plate (g, { 8.f, 470.f, 1184.f, 488.f }, "");
+    if (fxPage == 0)
+    {
+        plate (g, { 8.f, 336.f, 300.f, 152.f }, "VARVSHALL");
+        plate (g, { 316.f, 336.f, 300.f, 152.f }, "EKO");
+        plate (g, { 624.f, 336.f, 276.f, 152.f }, "ISOLATOR");
+        plate (g, { 908.f, 336.f, 284.f, 152.f }, "PRESS", true);
+    }
+    else
+    {
+        plate (g, { 8.f, 336.f, 300.f, 152.f }, "MULLER", true);
+        plate (g, { 316.f, 336.f, 300.f, 152.f }, "MOTOR V8", true);
+        plate (g, { 624.f, 336.f, 276.f, 152.f }, lang.t ("STORM + LARM", "STORM + SIREN"), true);
+        plate (g, { 908.f, 336.f, 284.f, 152.f }, lang.t ("UNDERGÅNG", "DOOM"), true);
+        // a warning glow behind the doom knob, growing with the knob
+        const float d = proc.apvts.getRawParameterValue (pid::doom)->load();
+        if (d > 0.01f) glowDot (g, 1050.f, 420.f, 34.f, C::alarm, d);
+    }
+    plate (g, { 8.f, 496.f, 1184.f, 488.f }, "");
     g.setFont (stencil (10.f)); g.setColour (C::paper.withAlpha (0.85f));
-    g.drawText (lang.t ("MÖNSTER", "PATTERN"), 22, 479, 66, 22, juce::Justification::centredLeft, false);
-    g.drawText (lang.t ("REDIGERA", "EDIT"), 652, 479, 72, 22, juce::Justification::centredRight, false);
-    g.setColour (C::steel.withAlpha (0.5f)); g.fillRect (20.f, 505.f, 1160.f, 1.f);
+    g.drawText (lang.t ("MÖNSTER", "PATTERN"), 22, 505, 66, 22, juce::Justification::centredLeft, false);
+    g.drawText (lang.t ("REDIGERA", "EDIT"), 652, 505, 72, 22, juce::Justification::centredRight, false);
+    g.setColour (C::steel.withAlpha (0.5f)); g.fillRect (20.f, 531.f, 1160.f, 1.f);
 
     // ---- lane header ----
     g.setFont (stencil (9.5f)); g.setColour (C::paperDim);
-    auto hdr = [&] (int x, int w, const juce::String& s) { g.drawText (s, 8 + x, 510, w, 14, juce::Justification::centred, false); };
+    auto hdr = [&] (int x, int w, const juce::String& s) { g.drawText (s, 8 + x, 536, w, 14, juce::Justification::centred, false); };
     hdr (LaneRow::xName, 92, lang.t ("KANAL", "CHANNEL"));
     for (int i = 0; i < 32; i += 4)
         hdr (LaneRow::xGrid + i * StepGrid::kCell, StepGrid::kCell, juce::String (i + 1));
@@ -864,6 +953,11 @@ void Root::tick()
             for (auto& l : lanes) l->grid.repaint();
         }
         for (auto& l : lanes) l->poll();
+        if (fxPage == 1)
+        {   // keep the doom glow in step with the knob (and with automation)
+            const float d = proc.apvts.getRawParameterValue (pid::doom)->load();
+            if (std::abs (d - lastDoom) > 0.005f) { lastDoom = d; repaint (900, 330, 300, 170); }
+        }
     }
     rings.repaint();
     const float n = proc.apvts.getRawParameterValue (pid::nudge)->load();
@@ -890,7 +984,7 @@ MotstandEditor::MotstandEditor (MotstandProcessor& p)
     tips.setLookAndFeel (&lnf);
     addAndMakeVisible (root);
     setResizable (true, true);
-    setResizeLimits (660, 515, 1800, 1404);
+    setResizeLimits (660, 543, 1800, 1482);
     if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) dock::Root::W / dock::Root::H);
     setSize (900, 702);   // fits a 13" laptop next to the DAW; drag the corner for bigger
     startTimerHz (30);

@@ -75,6 +75,7 @@ struct Varvshall {
     float damping = 0.5f;   // 0..1  (1 = dark)
     float predelayMs = 18.f;
     bool  freeze = false;
+    bool  lowCutOn = true;  // off for MULLER, which lives in the lows
 
     void prepare(double s) {
         sr = s;
@@ -99,7 +100,7 @@ struct Varvshall {
         updateCoefs(false);
         // low cut + predelay on the mono-ish input (keeps the kick out of the hall)
         float in = 0.5f * (inL + inR);
-        in = lowCut.hp(in);
+        if (lowCutOn) in = lowCut.hp(in);
         pre.push(in);
         const float pd = std::max(1.f, predelayMs * 0.001f * (float)sr);
         const float x = freeze ? 0.f : pre.readLin(pd);

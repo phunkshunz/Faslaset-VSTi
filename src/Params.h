@@ -5,6 +5,7 @@
 #include "Vinkelslip.h"
 #include "Fx.h"
 #include "Pattern.h"
+#include "Doom.h"
 
 namespace motstand {
 
@@ -68,7 +69,10 @@ namespace pid {
         hallSize = "hallSize", hallDecay = "hallDecay", hallDamp = "hallDamp", hallPre = "hallPre", hallLevel = "hallLevel", hallFreeze = "hallFreeze",
         ekoTime = "ekoTime", ekoFeedback = "ekoFeedback", ekoTone = "ekoTone", ekoWear = "ekoWear", ekoLevel = "ekoLevel", ekoPing = "ekoPing",
         isoLow = "isoLow", isoMid = "isoMid", isoHigh = "isoHigh", killLow = "killLow", killMid = "killMid", killHigh = "killHigh",
-        pressAmt = "pressAmt", pump = "pump", pattern = "pattern", fill = "fill";
+        pressAmt = "pressAmt", pump = "pump", pattern = "pattern", fill = "fill",
+        mullerAmt = "mullerAmt", mullerDepth = "mullerDepth", mullerFreq = "mullerFreq", mullerDirt = "mullerDirt", mullerPump = "mullerPump",
+        motorGas = "motorGas", motorRpm = "motorRpm", motorTone = "motorTone", motorRattle = "motorRattle",
+        stormAmt = "stormAmt", stormSweep = "stormSweep", stormColor = "stormColor", alarm = "alarm", doom = "doom";
 }
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
@@ -143,6 +147,37 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::pressAmt, 1 }, "PRESS",
           NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::pump, 1 }, "PUMP",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+
+    // ---- UNDERGÅNG (all off by default) ----
+    auto hz = AudioParameterFloatAttributes().withLabel("Hz");
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::mullerAmt, 1 }, "MULLER",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::mullerDepth, 1 }, "MULLER DJUP",
+          NormalisableRange<float>(1.f, 12.f, 0.01f, 0.5f), 6.f, AudioParameterFloatAttributes().withLabel("s")));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::mullerFreq, 1 }, "MULLER FREKVENS",
+          NormalisableRange<float>(50.f, 300.f, 0.1f, 0.5f), 120.f, hz));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::mullerDirt, 1 }, "MULLER SMUTS",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.4f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::mullerPump, 1 }, "MULLER PUMP",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.85f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::motorGas, 1 }, "MOTOR GAS",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::motorRpm, 1 }, "MOTOR VARV",
+          NormalisableRange<float>(500.f, 7000.f, 1.f, 0.45f), 1100.f, AudioParameterFloatAttributes().withLabel("rpm")));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::motorTone, 1 }, "MOTOR KLANG",
+          NormalisableRange<float>(60.f, 400.f, 0.1f, 0.5f), 140.f, hz));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::motorRattle, 1 }, "MOTOR RASSEL",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.3f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::stormAmt, 1 }, "STORM",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::stormSweep, 1 }, "STORM SVEP",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.3f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::stormColor, 1 }, String::fromUTF8(u8"STORM FÄRG"),
+          NormalisableRange<float>(300.f, 6000.f, 1.f, 0.4f), 1500.f, hz));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::alarm, 1 }, "LARM",
+          NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::doom, 1 }, String::fromUTF8(u8"UNDERGÅNG"),
           NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f, pct));
 
     // ---- patterns ----

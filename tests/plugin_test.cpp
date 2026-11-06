@@ -284,6 +284,19 @@ int main()
         CHECK (y.getCell (3, motstand::TOM_LO, 0).ratchet == 2, "factory pattern D lost");
     }
 
+    // 17. UNDERGÅNG really drives the machine (regression: the macro used to be overwritten)
+    {
+        auto collapseWith = [&] (float doom) {
+            MotstandProcessor p; setP (p, motstand::pid::doom, doom); p.prepareToPlay (sr, 512);
+            juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512); float mx = 0;
+            for (int b = 0; b < 400; ++b) { juce::MidiBuffer m; p.processBlock (buf, m); mx = std::max (mx, p.getCollapse()); }
+            return mx;
+        };
+        const float off = collapseWith (0.f), full = collapseWith (1.f);
+        std::printf ("UNDERGÅNG Smog collapse peak: off %.2f, full %.2f\n", off, full);
+        CHECK (full > off + 0.2f, "UNDERGÅNG does not reach Detroit Smog");
+    }
+
     // 16. Every preset loads, plays sane, and is the same every time
     {
         double worstLoad = 0; juce::String worstName;

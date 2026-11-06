@@ -22,6 +22,8 @@ jobs:
           ./core_test
           g++ -std=c++17 -O2 -Wall -Wextra -Isrc tests/fx_test.cpp -o fx_test
           ./fx_test
+          g++ -std=c++17 -O2 -Wall -Wextra -Isrc tests/doom_test.cpp -o doom_test
+          ./doom_test
 
       - name: Rendera demo
         run: |
@@ -76,6 +78,8 @@ jobs:
           ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-sv-2x.png sv 2
           ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-haveri.png sv 1 0 30
           ./build/MotstandTour_artefacts/Release/MotstandTour MOTSTAND-panel-tour.wav 7.5
+          ./build/MotstandTour_artefacts/Release/MotstandTour MOTSTAND-panel-undergang.wav 9 doom
+          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-undergang.png sv 1 0 56 doom
 
       - name: Ladda upp panelbilderna
         if: steps.changed.outputs.run == 'yes'
@@ -85,4 +89,5 @@ jobs:
           path: |
             MOTSTAND-panel-*.png
             MOTSTAND-panel-tour.wav
+            MOTSTAND-panel-undergang.wav
           retention-days: 30

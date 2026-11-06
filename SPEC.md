@@ -108,6 +108,22 @@ Presets syns också som program i DAW:en. Bläddraren sitter i toppen (< meny >)
 CPU: tyngsta preset ~15 % av en kärna här (VINKELSLIP:s översampling är polyfas, ADAA cachar F(x)).
 `MotstandTour ut.wav` renderar en rundtur genom kategorierna via det riktiga pluginet.
 
+## UNDERGÅNG (steg 4f) — `src/Doom.h`, fliken STUDIO | UNDERGÅNG
+Allt är av som standard: grunden är fortfarande ren.
+- **MULLER:** hardtechno-rumble. Kicken (efter VINKELSLIP) matas in i en mörk jättehall utan lågskärning,
+  LP 50–300 Hz (24 dB/okt), distas (SMUTS) och duckas av nästa kick (PUMP). Mono. Mätt: 100 % under 300 Hz,
+  ~10 dB duck direkt efter kicken.
+- **MOTOR V8:** cross-plane-tändning (8 ojämna tändningar per 2 varv), vänster bank vänster högtalare,
+  höger bank höger. GAS, VARV 500–7000 (motorn "jagar" lite på tomgång), KLANG (avgasresonans), RASSEL
+  (ojämnhet + feltändningar). Mätt: exakt 80 tändningar/s vid 1200 varv.
+- **STORM + LARM:** sandstorm (brus genom drivande resonansfilter + vind) med SAND, SVEP, FÄRG.
+  LARM = flyglarmssiren (~9 s cykel) som mest skickas in i VARVSHALL, så den låter långt bort.
+- **UNDERGÅNG-ratten:** en ratt som drar Smog (och sänker tröskeln), Press, Pump, Muller, Storm och
+  VINKELSLIP på alla kanaler, med automatisk nivå tillbaka (+5,6 dB på max).
+- 16 nya presets: **UNDERGÅNG** (ÖKENVÄGEN, BENSINKRIG, SISTA DAGEN, ASKREGN, RADIOAKTIV, DÖDSKÖRNING,
+  EVIGT MÖRKER, VÄRLDENS ÄNDE) och **PSYKOS** (PSYKOS, FEBERDRÖM, PARANOIA, SÖMNLÖS, HALLUCINOS, MANI,
+  ISOLERING, SKRIK) med rullande spökkickar och en rulle in i ettan. Totalt 65 presets.
+
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
@@ -117,6 +133,7 @@ CPU: tyngsta preset ~15 % av en kärna här (VINKELSLIP:s översampling är poly
 4c. ✅ Studioeffekter: VARVSHALL, EKO, ISOLATOR, PRESS + PUMP, sends per kanal
 4d. ✅ Sequencer: CHANS, RULLE, steglås (TUNE/DECAY), 8 mönster A–H, FILL, KOPIERA/KLISTRA/RENSA
 4e. ✅ 40 ljudmodeller (4 per kanal) + 49 presets i 8 kategorier, preset-bläddrare
+4f. ✅ UNDERGÅNG: MULLER, MOTOR V8, STORM + LARM, UNDERGÅNG-ratten, 16 presets (65 totalt)
 5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
 
 ## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`
@@ -135,7 +152,7 @@ CPU: tyngsta preset ~15 % av en kärna här (VINKELSLIP:s översampling är poly
 
 ## Panelen (steg 4b) — `src/Gui.h`, `src/PluginEditor.*`
 DOCKLANDS: rostig varvsplåt med nitar, rostrinnor och repor, lysrörsgrönt sken, Dymo-etiketter.
-Ritas i 1200 x 936 och skalas fritt (55–150 %) med låst proportion. Startar i 900 x 702 (passar en 13-tums laptop).
+Ritas i 1200 x 988 och skalas fritt (55–150 %) med låst proportion. Startar i 900 x 702 (passar en 13-tums laptop).
 - **DIE ZEIT:** strobe-ring som på en Technics (prickarna står still i fas, kryper när maskinen glider),
   BPM + "I FAS / 12 MS EFTER" i mitten, **jogghjul** för NUDGE (dra höger/vänster, fjädrar tillbaka),
   JITTER, DRIFT, FYLLA, BPM, EGET TEMPO, tärning.
