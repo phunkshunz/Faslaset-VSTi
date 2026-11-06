@@ -1,5 +1,6 @@
 // MASKINHALLEN : MOTSTÅND — audio processor (step 3)
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 using namespace motstand;
 
@@ -331,8 +332,7 @@ void MotstandProcessor::setStateInformation (const void* data, int size)
 
 juce::AudioProcessorEditor* MotstandProcessor::createEditor()
 {
-    // Temporary until step 4 (the real MOTSTÅND panel).
-    return new juce::GenericAudioProcessorEditor (*this);
+    return new MotstandEditor (*this);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

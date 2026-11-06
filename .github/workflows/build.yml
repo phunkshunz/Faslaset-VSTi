@@ -1,6 +1,6 @@
 name: Testa MOTSTÅND
 
-# Steg 4a av 5: motorn testas på varje push (ca 1 min).
+# Steg 4b av 5: motorn testas på varje push (ca 1 min).
 # Plugintestet (bygger med JUCE, ca 5 min) körs bara när pluginkoden ändras.
 # Mac-, Windows- och Linux-zippar för försäljning läggs till i steg 5.
 
@@ -62,5 +62,20 @@ jobs:
         if: steps.changed.outputs.run == 'yes'
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release -DMOTSTAND_TESTS=ON
-          cmake --build build --target MotstandTest Motstand_VST3 -j 4
+          cmake --build build --target MotstandTest MotstandSnapshot Motstand_VST3 -j 4
           ./build/MotstandTest_artefacts/Release/MotstandTest
+
+      - name: Rendera panelbilder (till hemsidan och Payhip)
+        if: steps.changed.outputs.run == 'yes'
+        run: |
+          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-sv.png sv 1
+          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-en.png en 1
+          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-sv-2x.png sv 2
+
+      - name: Ladda upp panelbilderna
+        if: steps.changed.outputs.run == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MOTSTAND-panel
+          path: MOTSTAND-panel-*.png
+          retention-days: 30

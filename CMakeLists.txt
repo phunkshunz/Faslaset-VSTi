@@ -41,7 +41,7 @@ juce_add_plugin(Motstand
     LV2URI "https://phunkshunz.github.io/lv2/Motstand"
     FORMATS VST3 AU Standalone ${PHZ_EXTRA_FORMATS})
 
-set(MOTSTAND_SOURCES src/PluginProcessor.cpp)
+set(MOTSTAND_SOURCES src/PluginProcessor.cpp src/PluginEditor.cpp)
 set(MOTSTAND_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
 
 target_sources(Motstand PRIVATE ${MOTSTAND_SOURCES})
@@ -75,5 +75,14 @@ if(MOTSTAND_TESTS)
         JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0 JUCE_USE_XRENDER=0 JUCE_USE_XSHM=0
         JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(MotstandTest PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags)
+
+    # Panel snapshot: renders the editor to a PNG without opening a window
+    juce_add_console_app(MotstandSnapshot PRODUCT_NAME "MotstandSnapshot")
+    target_sources(MotstandSnapshot PRIVATE tests/gui_snapshot.cpp ${MOTSTAND_SOURCES})
+    target_compile_definitions(MotstandSnapshot PRIVATE ${MOTSTAND_DEFS} JUCE_ALSA=0 JUCE_JACK=0
+        JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0 JUCE_USE_XRENDER=0 JUCE_USE_XSHM=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(MotstandSnapshot PRIVATE juce::juce_audio_utils juce::juce_dsp
         PUBLIC juce::juce_recommended_config_flags)
 endif()

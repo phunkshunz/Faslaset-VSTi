@@ -62,8 +62,7 @@ Spela in den i Bitwig, så får du Mills-timingen som MIDI. Kan stängas av (MID
 2. ✅ 909-rösterna + offline demo-rendering
 3. ✅ PluginProcessor: allt ihopkopplat, separata utgångar per instrument, 2x oversampling på Smog
 4a. ✅ Ljud v2: nya röster, VINKELSLIP, ELNÄT, MIDI ut
-4b. Panel i DOCKLANDS-stil: rostigt varvsstål, nitar, lysrörsgrönt. Strobe-ring (slip),
-    jogghjul (NUDGE), polymeter-ringar, Smog-visare, steggrid, tärningar per sektion, SV/EN
+4b. ✅ Panel i DOCKLANDS-stil (se nedan)
 5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
 
 ## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`
@@ -78,7 +77,23 @@ Spela in den i Bitwig, så får du Mills-timingen som MIDI. Kan stängas av (MID
 - **MIDI in:** GM 909-map (36 kick, 38 virvel, 39 klapp, 37 kant, 41/45/48 toms, 42/46 hats, 51 ride).
 - **State:** parametrar + mönster sparas i projektet/presetet. Samma seed = exakt samma tagning.
 - Latens (VINKELSLIP 23 + Smog-översampling 3 = 26 samples i 48 kHz) rapporteras till DAW:en.
-- GUI just nu: JUCE:s enkla reglagelista. Riktiga panelen kommer i steg 4.
+
+
+## Panelen (steg 4b) — `src/Gui.h`, `src/PluginEditor.*`
+DOCKLANDS: rostig varvsplåt med nitar, rostrinnor och repor, lysrörsgrönt sken, Dymo-etiketter.
+Ritas i 1200 x 780 och skalas fritt (60–150 %) med låst proportion.
+- **DIE ZEIT:** strobe-ring som på en Technics (prickarna står still i fas, kryper när maskinen glider),
+  BPM + "I FAS / 12 MS EFTER" i mitten, **jogghjul** för NUDGE (dra höger/vänster, fjädrar tillbaka),
+  JITTER, DRIFT, FYLLA, BPM, EGET TEMPO, tärning.
+- **RINGARNA:** varje aktiv kanal är en ring, spelhuvudet lyser vitt. Mitten räknar
+  "ETTAN OM X TAKTER" och blinkar "ETTAN!" när alla möts.
+- **DETROIT SMOG:** analog visare (snabb upp, långsam ner) med rött fält, MÄNGD, TRÖSKEL, ELNÄT, MASTER, tärning.
+- **10 kanalremsor:** tärning (stilriktigt slumpat mönster per instrument, polymeter-längder för toms/kant),
+  Dymo-namn, 32-stegs grid (klick = slag, dra upp/ner = styrka, dra i sidled = fler slag,
+  högerklick = accent/mjuk/av), LÄNGD, TUNE/DECAY/TON/NIVÅ, VINKELSLIP läge/DRIVE/MATNING/MIX, TYST.
+  Tärning för VINKELSLIP på alla kanaler (smakfullt: ungefär hälften, aldrig fullt).
+- **Toppen:** SEED + tärning, MIDI UT, CYMBAL ROM, **SV/EN** (sparas i projektet). Tips-rutor på båda språken.
+- Panelbilder renderas utan fönster: `MotstandSnapshot bild.png [sv|en] [skala]`, även i Actions.
 
 ## Test
     g++ -std=c++17 -O2 -Isrc tests/core_test.cpp -o core_test && ./core_test
