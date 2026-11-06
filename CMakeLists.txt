@@ -77,6 +77,14 @@ if(MOTSTAND_TESTS)
     target_link_libraries(MotstandTest PRIVATE juce::juce_audio_utils juce::juce_dsp
         PUBLIC juce::juce_recommended_config_flags)
 
+    # Preset tour: renders presets through the real plugin to a WAV
+    juce_add_console_app(MotstandTour PRODUCT_NAME "MotstandTour")
+    target_sources(MotstandTour PRIVATE tests/preset_tour.cpp ${MOTSTAND_SOURCES})
+    target_compile_definitions(MotstandTour PRIVATE ${MOTSTAND_DEFS} JUCE_ALSA=0 JUCE_JACK=0
+        JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0 JUCE_USE_XRENDER=0 JUCE_USE_XSHM=0)
+    target_link_libraries(MotstandTour PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags)
+
     # Panel snapshot: renders the editor to a PNG without opening a window
     juce_add_console_app(MotstandSnapshot PRODUCT_NAME "MotstandSnapshot")
     target_sources(MotstandSnapshot PRIVATE tests/gui_snapshot.cpp ${MOTSTAND_SOURCES})

@@ -28,10 +28,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 3.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    // presets show up as programs in the DAW, too
+    int getNumPrograms() override;
+    int getCurrentProgram() override { return currentPreset; }
+    void setCurrentProgram (int index) override { loadPreset (index); }
+    const juce::String getProgramName (int index) override;
+    void loadPreset (int index);
+    int currentPreset = 0;
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock&) override;
@@ -105,7 +108,7 @@ private:
     struct InstParams { std::atomic<float>* tune; std::atomic<float>* decay; std::atomic<float>* tone;
                         std::atomic<float>* level; std::atomic<float>* len; std::atomic<float>* mute;
                         std::atomic<float>* slipMode; std::atomic<float>* slipDrive; std::atomic<float>* slipFeed; std::atomic<float>* slipMix;
-                        std::atomic<float>* sendHall; std::atomic<float>* sendEko; };
+                        std::atomic<float>* sendHall; std::atomic<float>* sendEko; std::atomic<float>* model; };
     std::array<InstParams, motstand::kNumInstruments> ip {};
     std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pRomMode,
         *pHallSize, *pHallDecay, *pHallDamp, *pHallPre, *pHallLevel, *pHallFreeze,

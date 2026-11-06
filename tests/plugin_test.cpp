@@ -1,6 +1,8 @@
 // MOTSTÅND — plugin test (runs the real processor without a DAW)
 //   cmake -B build -DMOTSTAND_TESTS=ON && cmake --build build --target MotstandTest && ./build/.../MotstandTest
 #include "../src/PluginProcessor.h"
+#include "../src/Presets.h"
+#include <chrono>
 #include <cstdio>
 #include <functional>
 
@@ -280,6 +282,29 @@ int main()
         std::printf ("BANK     step with FILL+3-roll+locks in pattern E restored: %s\n", same ? "yes" : "no");
         CHECK (same, "bank state not restored");
         CHECK (y.getCell (3, motstand::TOM_LO, 0).ratchet == 2, "factory pattern D lost");
+    }
+
+    // 16. Every preset loads, plays sane, and is the same every time
+    {
+        double worstLoad = 0; juce::String worstName;
+        for (int i = 0; i < motstand::numPresets(); ++i)
+        {
+            MotstandProcessor p; p.loadPreset (i); p.prepareToPlay (sr, 512);
+            const auto t0 = std::chrono::steady_clock::now();
+            auto r = run (p, 4.0);
+            const double cpu = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count() / 4.0;
+            if (cpu > worstLoad) { worstLoad = cpu; worstName = motstand::presetName (i); }
+            CHECK (r.finite && r.peak < 1.6 && r.mainRms > 0.01, "preset %d %s: rms %.3f peak %.2f", i, motstand::presetName (i).toRawUTF8(), r.mainRms, r.peak);
+            if (i == 0 || i % 12 == 5)
+                std::printf ("PRESET   %-30s rms %.3f peak %.2f\n", motstand::presetName (i).toRawUTF8(), r.mainRms, r.peak);
+        }
+        std::printf ("PRESETS  %d checked. Heaviest: %s uses %.1f %% of one core in real time\n",
+                     motstand::numPresets(), worstName.toRawUTF8(), worstLoad * 100.0);
+        MotstandProcessor a, b; a.loadPreset (27); b.loadPreset (27);
+        juce::MemoryBlock ma, mb; a.getStateInformation (ma); b.getStateInformation (mb);
+        CHECK (ma == mb, "same preset gave a different machine");
+        a.loadPreset (0);
+        CHECK (a.getCell (3, motstand::TOM_LO, 0).ratchet == 2, "FABRIK did not restore the factory bank");
     }
 
     std::printf (failures ? "\n%d FAILED\n" : "\nALL OK\n", failures);

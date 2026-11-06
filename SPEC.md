@@ -88,6 +88,26 @@ Varje steg är 32 bit (delas låsfritt mellan panel och ljud): styrka, CHANS, RU
   (prickar = rulle, gult/rött hörn = chans/FILL, mörk ruta = lås).
 - Gamla projekt laddas in i mönster A.
 
+## Ljudmodeller (steg 4e) — klicka på kanalnamnet
+| Kanal | Modeller |
+|---|---|
+| KICK | 909, BOOM (lång sub), STAMP (kort punch), INDUSTRI (fyrkantig + grusig kropp) |
+| VIRVEL | 909, TAJT, FET, BRUS |
+| KLAPP | 909, TAJT (2 smällar), SAL (stor svans), SNAPP (fingerknäpp) |
+| KANT | 909, CLAVE, KOSKÄLLA, KNACK |
+| TOMS | 909, CONGA, SYNT (lång djup svepning), BONGO |
+| HATS | 909-ROM, 808-ROM, BRUS-ROM, METALL-ROM (oharmonisk ring) |
+| RIDE | 909-ROM, CRASH, KLOCKA, SPRAK |
+Alla 8 cymbal-ROM:ar byggs bandbegränsat en gång vid start (~0,3 s), aldrig på ljudtråden.
+
+## Presets (steg 4e) — `src/Presets.h`
+49 presets: FABRIK + 6 i varje kategori DETROIT, BERLIN, MINIMAL, HARDGROOVE, INDUSTRI, DUB, ROM-KORN, LABB.
+Varje preset är en stilbeskrivning som en seedad generator gör om till kit (modeller, tune, decay),
+VINKELSLIP, sends, effekter, klocka och en hel mönsterbank A–H. Samma preset blir exakt samma varje gång.
+Presets syns också som program i DAW:en. Bläddraren sitter i toppen (< meny >).
+CPU: tyngsta preset ~15 % av en kärna här (VINKELSLIP:s översampling är polyfas, ADAA cachar F(x)).
+`MotstandTour ut.wav` renderar en rundtur genom kategorierna via det riktiga pluginet.
+
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
@@ -96,7 +116,7 @@ Varje steg är 32 bit (delas låsfritt mellan panel och ljud): styrka, CHANS, RU
 4b. ✅ Panel i DOCKLANDS-stil (se nedan)
 4c. ✅ Studioeffekter: VARVSHALL, EKO, ISOLATOR, PRESS + PUMP, sends per kanal
 4d. ✅ Sequencer: CHANS, RULLE, steglås (TUNE/DECAY), 8 mönster A–H, FILL, KOPIERA/KLISTRA/RENSA
-4e. 40+ presets (kit + mönster)
+4e. ✅ 40 ljudmodeller (4 per kanal) + 49 presets i 8 kategorier, preset-bläddrare
 5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
 
 ## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`

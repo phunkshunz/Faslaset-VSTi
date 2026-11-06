@@ -116,7 +116,7 @@ public:
     }
 };
 
-class LaneRow : public juce::Component
+class LaneRow : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     LaneRow (MotstandProcessor& p, int inst, const int& editMode);
@@ -124,6 +124,8 @@ public:
     void resized() override;
     void setLang (const Lang& l);
     void randomise();
+    void poll();                                   // repaint if the sound model changed
+    void mouseDown (const juce::MouseEvent& e) override;
     StepGrid grid;
     // layout x positions (design units), shared with the header
     static constexpr int xDice = 6, xName = 32, xGrid = 130, xLen = 618, xKnobs = 666, knobStep = 38, xMode = 826, xSlip = 920, slipStep = 38, xSend = 1042, xMute = 1124, knobW = 36;
@@ -131,6 +133,8 @@ private:
     MotstandProcessor& proc;
     int inst;
     juce::String name;
+    Lang lang;
+    int lastModel = -1;
     DiceButton dice;
     juce::Slider len;
     std::array<juce::Slider, 4> voice;      // TUNE DECAY TON NIVÅ
@@ -166,7 +170,10 @@ private:
     juce::Image wall;
 
     // top bar
-    juce::TextButton langBtn;
+    juce::TextButton langBtn, prevPreset, nextPreset;
+    juce::ComboBox presetBox;
+    int shownPreset = -1;
+    void pickPreset (int index);
     juce::ComboBox romBox;
     juce::ToggleButton midiBtn;
     juce::Slider seed;

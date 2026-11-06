@@ -1,6 +1,7 @@
 // MASKINHALLEN : MOTSTÅND — audio processor (step 3)
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets.h"
 
 using namespace motstand;
 
@@ -32,7 +33,8 @@ MotstandProcessor::MotstandProcessor()
                            apvts.getRawParameterValue (pid::inst (i, "slipFeed")),
                            apvts.getRawParameterValue (pid::inst (i, "slipMix")),
                            apvts.getRawParameterValue (pid::inst (i, "sendHall")),
-                           apvts.getRawParameterValue (pid::inst (i, "sendEko")) };
+                           apvts.getRawParameterValue (pid::inst (i, "sendEko")),
+                           apvts.getRawParameterValue (pid::inst (i, "model")) };
     }
     pTempoSrc = apvts.getRawParameterValue (pid::tempoSrc);
     pBpm      = apvts.getRawParameterValue (pid::bpm);
@@ -133,6 +135,7 @@ void MotstandProcessor::pullParameters()
         p.decay = q.decay->load();
         p.tone  = q.tone->load();
         p.level = q.level->load();
+        p.model = juce::jlimit (0, kNumModels - 1, (int) q.model->load());
         lanes[(size_t) i].length = juce::jlimit (1, kMaxSteps, (int) q.len->load());
         auto& v = slip[(size_t) i];
         v.mode    = juce::jlimit (0, kNumSlipModes - 1, (int) q.slipMode->load());
@@ -398,6 +401,7 @@ void MotstandProcessor::getStateInformation (juce::MemoryBlock& dest)
     state.removeChild (state.getChildWithName ("BANK"), nullptr);
     state.removeChild (state.getChildWithName ("PATTERN"), nullptr);
     state.appendChild (bk, nullptr);
+    state.setProperty ("preset", currentPreset, nullptr);
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, dest);
 }
@@ -436,7 +440,36 @@ void MotstandProcessor::setStateInformation (const void* data, int size)
         }
         state.removeChild (pat, nullptr);
     }
+    currentPreset = juce::jlimit (0, numPresets() - 1, (int) state.getProperty ("preset", 0));
     apvts.replaceState (state);
+}
+
+// ---- presets ----
+int MotstandProcessor::getNumPrograms() { return numPresets(); }
+const juce::String MotstandProcessor::getProgramName (int index) { return presetName (index); }
+
+void MotstandProcessor::loadPreset (int index)
+{
+    index = juce::jlimit (0, numPresets() - 1, index);
+    currentPreset = index;
+    // everything back to factory defaults first (the panel language is not a parameter, it stays)
+    for (auto* p : getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (rp->getParameterID() != pid::fill)
+            { rp->beginChangeGesture(); rp->setValueNotifyingHost (rp->getDefaultValue()); rp->endChangeGesture(); }
+    if (index == 0)
+    {
+        const auto fb = factoryBank();
+        for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, fb[(size_t) pt]);
+        return;
+    }
+    auto set = [this] (const juce::String& id, float plain)
+    {
+        if (auto* rp = apvts.getParameter (id))
+        { rp->beginChangeGesture(); rp->setValueNotifyingHost (rp->convertTo0to1 (plain)); rp->endChangeGesture(); }
+    };
+    const auto bank = applyStyle (styles()[(size_t) index - 1], set);
+    for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, bank[(size_t) pt]);
 }
 
 juce::AudioProcessorEditor* MotstandProcessor::createEditor()

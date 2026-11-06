@@ -31,6 +31,16 @@ namespace motstand {
 
 enum SlipMode { DIOD = 0, GERMANIUM, TEJP, VIKNING, LIKRIKTARE, ROMKROSS, kNumSlipModes };
 
+// tanh without the libm call: Lambert's continued fraction, error < 1e-4 up to |x| = 4.97
+inline float fastTanh(float x) {
+    if (x > 4.97f) return 1.f;
+    if (x < -4.97f) return -1.f;
+    const float x2 = x * x;
+    const float a = x * (135135.f + x2 * (17325.f + x2 * (378.f + x2)));
+    const float b = 135135.f + x2 * (62370.f + x2 * (3150.f + 28.f * x2));
+    return a / b;
+}
+
 // ---------------------------------------------------------------------
 //  Halfband FIR (31 taps, Kaiser), linear phase. Half the taps are zero
 //  so only the non-zero ones are computed.
@@ -64,19 +74,41 @@ struct HalfbandKernel {
 };
 
 struct HbFilter {           // runs at the higher of its two rates
+    // polyphase halfband: the 16 odd-offset taps + the centre tap (0.5),
+    // copied into flat arrays so the inner loop is a plain dot product
+    static constexpr int kCentre = (kHbTaps - 1) / 2;
     std::array<float, 2 * kHbTaps> buf{};
-    int pos = 0;
-    void reset() { buf.fill(0.f); pos = 0; }
-    void push(float v) { buf[(size_t)pos] = buf[(size_t)(pos + kHbTaps)] = v; pos = (pos + 1) % kHbTaps; }
-    float conv() const {
+    std::array<float, 16> hEven{};      // taps at even buffer offsets (the dense phase)
+    std::array<int, 16> oEven{};
+    int numEven = 0, pos = 0;
+    float hCentre = 0.5f;
+
+    HbFilter() {
         const auto& K = HalfbandKernel::get();
-        const int newest = pos + kHbTaps - 1;
-        float s = 0.f;
-        for (int i = 0; i < K.numNz; ++i) { const int t = K.nz[(size_t)i]; s += K.h[(size_t)t] * buf[(size_t)(newest - t)]; }
+        for (int i = 0; i < K.numNz; ++i) {
+            const int t = K.nz[(size_t)i];
+            if (t == kCentre) { hCentre = K.h[(size_t)t]; continue; }
+            hEven[(size_t)numEven] = K.h[(size_t)t]; oEven[(size_t)numEven] = t; ++numEven;
+        }
+    }
+    void reset() { buf.fill(0.f); pos = 0; }
+    void push(float v) {
+        buf[(size_t)pos] = buf[(size_t)(pos + kHbTaps)] = v;
+        if (++pos == kHbTaps) pos = 0;
+    }
+    const float* newest() const { return buf.data() + pos + kHbTaps - 1; }
+    float convEven() const {           // only the dense phase
+        const float* n = newest(); float s = 0.f;
+        for (int i = 0; i < numEven; ++i) s += hEven[(size_t)i] * n[-oEven[(size_t)i]];
         return s;
     }
-    void up(float x, float& a, float& b) { push(x * 2.f); a = conv(); push(0.f); b = conv(); }
-    float down(float a, float b) { push(a); push(b); return conv(); }
+    float convAll() const { return convEven() + hCentre * newest()[-kCentre]; }
+    // x2 up: the stuffed zeros mean each output needs only one phase
+    void up(float x, float& a, float& b) {
+        push(x * 2.f); a = convEven();              // centre tap sits on a stuffed zero here
+        push(0.f);     b = hCentre * newest()[-kCentre];   // ... and the even taps sit on zeros here
+    }
+    float down(float a, float b) { push(a); push(b); return convAll(); }
 };
 
 // 4x up/down. Latency: 15 samples at every stage = 22.5 base samples,
@@ -122,7 +154,7 @@ struct Vinkelslip {
         reset();
     }
     void reset() {
-        os4.reset(); delay.fill(0.f); dpos = 0; xPrev = 0.f; gateEnv = 0.f;
+        os4.reset(); delay.fill(0.f); dpos = 0; xPrev = 0.f; FPrev = 0.f; gateEnv = 0.f;
         holdPhase = 0.f; held = 0.f; smooth = 0.f; engage = 0.f; active = false; dc.reset(); tape.reset();
     }
     void onTrigger(float vel01) { lastVel = vel01; }
@@ -137,11 +169,12 @@ struct Vinkelslip {
         smooth += (target - smooth) * smoothC;
 
         const bool want = drive > 0.f;
-        if (want && !active) { os4.reset(); xPrev = 0.f; active = true; }
+        if (want && !active) { os4.reset(); xPrev = 0.f; FPrev = 0.f; active = true; }
         engage = want ? std::min(1.f, engage + engageStep) : std::max(0.f, engage - engageStep);
         if (!active) return dry;
         if (!want && engage <= 0.f) { active = false; return dry; }
 
+        if (mode != lastMode) { lastMode = mode; FPrev = 0.f; xPrev = 0.f; }
         const float g = 1.f + smooth * smooth * 30.f;            // up to ~+30 dB
         makeup = 1.f / (1.f + smooth * 1.3f);
         outGain = 1.25f / (1.f + 1.6f * smooth) * levelMatch(smooth);   // louder ≠ better
@@ -176,7 +209,7 @@ private:
         return std::pow(10.f, db / 20.f);
     }
     float makeup = 1.f, outGain = 1.25f;
-    float limit(float y) const { return std::tanh(y * makeup * 1.4f) / 1.4f * outGain; }
+    float limit(float y) const { return fastTanh(y * makeup * 1.4f) / 1.4f * outGain; }
     float shape(float u) {
         float y;
         switch (mode) {
@@ -210,8 +243,9 @@ private:
     template <typename F, typename Fi>
     float adaa(float x, F f, Fi Fint) {
         const float d = x - xPrev;
-        const float y = std::fabs(d) > 1e-4f ? (Fint(x) - Fint(xPrev)) / d : f(0.5f * (x + xPrev));
-        xPrev = x;
+        const float Fx = Fint(x);                       // F(x[n-1]) is remembered from last sample
+        const float y = std::fabs(d) > 1e-4f ? (Fx - FPrev) / d : f(0.5f * (x + xPrev));
+        xPrev = x; FPrev = Fx;
         return y;
     }
     float germanium(float u) {
@@ -238,9 +272,10 @@ private:
     Os4 os4;
     std::array<float, kLatency + 1> delay{};
     int dpos = 0;
-    float xPrev = 0.f, lastVel = 1.f, smooth = 0.f, smoothC = 0.01f, engage = 0.f, engageStep = 0.001f;
+    float xPrev = 0.f, FPrev = 0.f, lastVel = 1.f, smooth = 0.f, smoothC = 0.01f, engage = 0.f, engageStep = 0.001f;
     float gateEnv = 0.f, gateC = 0.99f, holdPhase = 0.f, held = 0.f;
     bool active = false;
+    int lastMode = -1;
     OnePole dc, tape;
 };
 

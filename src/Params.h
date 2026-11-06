@@ -39,6 +39,20 @@ inline int noteToInstrument(int note) {
 // GM 909 notes sent by MIDI out (and the first match of the input map)
 inline constexpr int kInstNote[kNumInstruments] = { 36, 38, 39, 37, 41, 45, 48, 42, 46, 51 };
 
+// sound models per instrument (index 0 is always the 909 voice)
+inline const char* const kModelSV[kNumInstruments][kNumModels] = {
+    { "909", "BOOM", "STAMP", "INDUSTRI" },   { "909", "TAJT", "FET", "BRUS" },
+    { "909", "TAJT", "SAL", "SNAPP" },        { "909", "CLAVE", u8"KOSKÄLLA", "KNACK" },
+    { "909", "CONGA", "SYNT", "BONGO" },      { "909", "CONGA", "SYNT", "BONGO" },      { "909", "CONGA", "SYNT", "BONGO" },
+    { "909", "808", "BRUS", "METALL" },       { "909", "808", "BRUS", "METALL" },
+    { "909", "CRASH", "KLOCKA", "SPRAK" } };
+inline const char* const kModelEN[kNumInstruments][kNumModels] = {
+    { "909", "BOOM", "STOMP", "INDUSTRIAL" }, { "909", "TIGHT", "FAT", "NOISE" },
+    { "909", "TIGHT", "HALL", "SNAP" },       { "909", "CLAVE", "COWBELL", "KNOCK" },
+    { "909", "CONGA", "SYNTH", "BONGO" },     { "909", "CONGA", "SYNTH", "BONGO" },     { "909", "CONGA", "SYNTH", "BONGO" },
+    { "909", "808", "NOISE", "METAL" },       { "909", "808", "NOISE", "METAL" },
+    { "909", "CRASH", "BELL", "SIZZLE" } };
+
 inline const char* const kSlipModeName[kNumSlipModes] = {
     "DIOD", "GERMANIUM", "TEJP", "VIKNING", "LIKRIKTARE", "ROM" };
 
@@ -153,6 +167,10 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
         l.add(std::make_unique<AudioParameterInt>(ParameterID{ pid::inst(i, "len"), 1 }, n + String::fromUTF8(u8" LÄNGD"),
               1, kMaxSteps, defLen));
         l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::inst(i, "mute"), 1 }, n + " TYST", false));
+        {
+            StringArray models; for (auto* m : kModelSV[i]) models.add(String::fromUTF8(m));
+            l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::inst(i, "model"), 1 }, n + String::fromUTF8(u8" LJUD"), models, 0));
+        }
         // VINKELSLIP
         l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::inst(i, "slipMode"), 1 }, n + String::fromUTF8(u8" SLIP LÄGE"),
               slipModes, i == KICK ? (int)DIOD : i <= TOM_HI && i >= TOM_LO ? (int)VIKNING : i >= CH ? (int)LIKRIKTARE : (int)GERMANIUM));

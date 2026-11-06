@@ -114,6 +114,32 @@ int main() {
         CHECK(e1 > e0 * 1.03, "decayMod has no audible effect");
     }
 
+    // ---- all 40 sound models: sound, stay sane, die away, and differ from the 909 model ----
+    {
+        Kit kit; float out[kNumInstruments];
+        for (int inst = 0; inst < kNumInstruments; ++inst) {
+            std::array<double, kNumModels> sig{};
+            for (int m = 0; m < kNumModels; ++m) {
+                kit.prepare(sr); kit.params(inst).model = m;
+                kit.trigger(inst, 1.f, 0.f, 0.f);
+                float peak = 0, tail = 0; bool bad = false; double fp = 0;
+                const int total = (int)(sr * (inst >= CH ? 12.0 : 8.0));   // BOOM and SYNT ring long on purpose
+                for (int i = 0; i < total; ++i) {
+                    kit.process(out); const float x = out[inst];
+                    if (!std::isfinite(x)) bad = true;
+                    peak = std::max(peak, std::fabs(x));
+                    if (i < (int)(sr * 0.25)) fp += x * std::sin(i * 0.0113) + x * x * 3.0;   // a cheap fingerprint
+                    if (i > total - (int)sr / 10) tail = std::max(tail, std::fabs(x));
+                }
+                sig[(size_t)m] = fp;
+                CHECK(!bad && peak > 0.05f && peak < 1.5f && tail < 0.001f, "model %d of %s: peak %.2f tail %.4f", m, names[inst], peak, tail);
+            }
+            for (int m = 1; m < kNumModels; ++m)
+                CHECK(std::fabs(sig[(size_t)m] - sig[0]) > 1e-3 * std::fabs(sig[0]) + 1e-6, "model %d of %s sounds like the 909 model", m, names[inst]);
+        }
+        std::printf("MODELS  40 sound models checked\n");
+    }
+
     // ---- VINKELSLIP: bypass is a clean fixed delay; every mode stays sane ----
     {
         Vinkelslip v; v.prepare(sr); v.drive = 0.f;

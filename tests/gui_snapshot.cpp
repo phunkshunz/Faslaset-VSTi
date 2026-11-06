@@ -1,4 +1,4 @@
-// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [sv|en] [scale] [pattern 0-7]
+// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [sv|en] [scale] [pattern 0-7] [preset 0-48]
 #include "../src/PluginProcessor.h"
 #include "../src/PluginEditor.h"
 
@@ -9,15 +9,20 @@ int main (int argc, char** argv)
     const bool en = argc > 2 && juce::String (argv[2]) == "en";
     const float scale = argc > 3 ? juce::String (argv[3]).getFloatValue() : 1.f;
     const int pattern = argc > 4 ? juce::String (argv[4]).getIntValue() : 0;     // 0..7 = A..H
+    const int preset  = argc > 5 ? juce::String (argv[5]).getIntValue() : 0;     // 0 = FABRIK
 
     MotstandProcessor p;
+    if (preset > 0) p.loadPreset (preset);
     p.apvts.state.setProperty ("lang", en ? "en" : "sv", nullptr);
     // show some life: a bit of VINKELSLIP and a playing machine
     auto set = [&] (const juce::String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
     set (motstand::pid::pattern, (float) pattern);
-    set (motstand::pid::inst (motstand::KICK, "slipDrive"), 0.35f);
-    set (motstand::pid::inst (motstand::TOM_LO, "slipDrive"), 0.5f);
-    set (motstand::pid::inst (motstand::OH, "slipDrive"), 0.4f);
+    if (preset == 0)
+    {
+        set (motstand::pid::inst (motstand::KICK, "slipDrive"), 0.35f);
+        set (motstand::pid::inst (motstand::TOM_LO, "slipDrive"), 0.5f);
+        set (motstand::pid::inst (motstand::OH, "slipDrive"), 0.4f);
+    }
     p.prepareToPlay (48000, 512);
     juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512);
     for (int b = 0; b < 300; ++b) { juce::MidiBuffer m; p.processBlock (buf, m); }   // ~3 s of playing

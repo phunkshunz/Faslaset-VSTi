@@ -99,7 +99,10 @@ struct VoiceParams {
     // "component tolerance": set once per seed, never by the user
     float tolTune  = 1.f;
     float tolDecay = 1.f;
+    int   model = 0;          // sound model 0..3 (0 = the 909 voice)
 };
+
+constexpr int kNumModels = 4;
 
 // How much the DrunkRider may move a hit at full amount
 constexpr float kRideTuneSemis = 0.25f;   // ±25 cents
@@ -115,42 +118,54 @@ struct Kick {
     float e1 = 0, e1C = 0, e2 = 0, e2C = 0;     // two-stage pitch envelope
     float pulse = 0, pulseC = 0, click = 0, clickC = 0;
     float shapeK = 1.5f, shapeNorm = 1.f, gain = 0, hold = 0;
+    float amt1 = 3.f, amt2 = 0.9f, bodyNz = 0.f;
     int   holdN = 0;
-    Svf clickF; OnePole out; Noise n;
+    Svf clickF, bodyF; OnePole out; Noise n;
 
     void prepare(double s) {
-        sr = s; clickF.set(2600, 0.9f, sr); out.setLP(9000, sr); n.seed(0x909A);
+        sr = s; clickF.set(2600, 0.9f, sr); bodyF.set(320, 0.7f, sr); out.setLP(9000, sr); n.seed(0x909A);
         amp = 0; pulse = click = 0;
     }
 
     void trigger(float vel, float tuneMod, float decayMod) {
-        base = (38.f + 30.f * p.tune) * p.tolTune * semis(tuneMod * kRideTuneSemis);
-        const float dec = (0.10f + 1.2f * p.decay * p.decay) * p.tolDecay * (1.f + decayMod * kRideDecayPct)
+        // models: 0 909, 1 BOOM (long sub), 2 STAMP (short punch), 3 INDUSTRI (squared + grit body)
+        float lo = 38.f, range = 30.f, decMul = 1.f, snap = 1.f, clickMul = 1.f, kShape = 0.9f, kVel = 1.3f;
+        amt1 = 3.f; amt2 = 0.9f; bodyNz = 0.f;
+        switch (p.model) {
+            case 1: lo = 31.f; range = 22.f; decMul = 1.9f; amt1 = 1.4f; amt2 = 0.5f; clickMul = 0.35f; kShape = 0.35f; kVel = 0.4f; break;
+            case 2: lo = 48.f; range = 34.f; decMul = 0.42f; amt1 = 4.4f; amt2 = 1.5f; snap = 0.6f; clickMul = 1.6f; kShape = 1.6f; kVel = 1.6f; break;
+            case 3: lo = 40.f; range = 28.f; decMul = 0.85f; amt1 = 3.4f; amt2 = 1.1f; clickMul = 1.2f; kShape = 3.2f; kVel = 2.0f; bodyNz = 0.32f; break;
+            default: break;
+        }
+        base = (lo + range * p.tune) * p.tolTune * semis(tuneMod * kRideTuneSemis);
+        const float dec = (0.10f + 1.2f * p.decay * p.decay) * decMul * p.tolDecay * (1.f + decayMod * kRideDecayPct)
                           * (1.f + 0.15f * vel);                   // accent rings a bit longer
         ampC  = decayCoef(dec, sr);
-        e1C   = decayCoef(0.004f + 0.004f * (1.f - p.tone), sr);   // fast snap
-        e2C   = decayCoef(0.035f + 0.03f * (1.f - p.tone), sr);    // slower settle
+        e1C   = decayCoef((0.004f + 0.004f * (1.f - p.tone)) * snap, sr);   // fast snap
+        e2C   = decayCoef((0.035f + 0.03f * (1.f - p.tone)) * snap, sr);    // slower settle
         pulseC= decayCoef(0.0004f, sr);
         clickC= decayCoef(0.0025f, sr);
         amp = 1.f; e1 = 1.f; e2 = 1.f;
-        pulse = 0.5f + 0.5f * p.tone;
-        click = 0.25f + 0.55f * p.tone;
+        pulse = (0.5f + 0.5f * p.tone) * std::min(1.f, clickMul);
+        click = (0.25f + 0.55f * p.tone) * clickMul;
         phase = 0.f;
         holdN = (int)(0.003 * sr);                                 // VCA holds ~3 ms open
-        shapeK = 0.9f + 1.3f * vel;                                // accent rounds it fuller
+        shapeK = kShape + kVel * vel;                              // accent rounds it fuller
         shapeNorm = 1.f / std::tanh(shapeK);
         gain = velGain(vel) * p.level;
     }
 
     float process() {
         if (amp < 1e-5f && click < 1e-5f && pulse < 1e-5f) return 0.f;
-        const float f = base * (1.f + 3.0f * e1 + 0.9f * e2);
+        const float f = base * (1.f + amt1 * e1 + amt2 * e2);
         phase += f / (float)sr; phase -= std::floor(phase);
         // triangle VCO, inverted so the hit starts on the positive peak (the 909 thump),
         // then soft-shaped toward a sine; accent pushes it squarer and fatter
         const float tri = 1.f - 4.f * std::fabs(phase - 0.5f);
-        const float body = std::tanh(shapeK * -tri) * shapeNorm * amp;
-        clickF.tick(n.next());
+        float body = std::tanh(shapeK * -tri) * shapeNorm * amp;
+        const float w = n.next();
+        if (bodyNz > 0.f) { bodyF.tick(w); body += bodyF.lp * bodyNz * amp * 2.f; }
+        clickF.tick(w);
         const float att = pulse + clickF.bp * click;
         const float y = out.lp(body * 0.82f + att * 0.42f);
         if (holdN > 0) --holdN; else amp *= ampC;
@@ -167,6 +182,7 @@ struct Snare {
     double sr = 48000;
     float ph1 = 0, ph2 = 0, f1 = 185, f2 = 330;
     float b1 = 0, b1C = 0, b2 = 0, b2C = 0, noiseEnv = 0, noiseC = 0, pEnv = 0, pC = 0, gain = 0, vel = 1;
+    float bodyMix = 1.f, noiseMix = 1.f;
     Svf hp, lp; OnePole air; Noise n;
 
     void prepare(double s) {
@@ -175,12 +191,20 @@ struct Snare {
     }
     void trigger(float v, float tuneMod, float decayMod) {
         vel = v;
-        const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis) * p.tolTune;
+        // models: 0 909, 1 TAJT (high, short), 2 FET (low, big body), 3 BRUS (almost all noise)
+        float off = 0.f, bMul = 1.f, nMul = 1.f; bodyMix = 1.f; noiseMix = 1.f;
+        switch (p.model) {
+            case 1: off = 5.f;  bMul = 0.55f; nMul = 0.45f; bodyMix = 0.85f; noiseMix = 1.1f; break;
+            case 2: off = -3.f; bMul = 1.8f;  nMul = 1.3f;  bodyMix = 1.4f;  noiseMix = 0.85f; break;
+            case 3: off = 0.f;  bMul = 0.4f;  nMul = 1.6f;  bodyMix = 0.25f; noiseMix = 1.4f; break;
+            default: break;
+        }
+        const float t = semis((p.tune - 0.5f) * 8.f + off + tuneMod * kRideTuneSemis) * p.tolTune;
         f1 = 178.f * t; f2 = 331.f * t;
         const float dm = (1.f + decayMod * kRideDecayPct) * p.tolDecay;
-        b1C = decayCoef(0.060f * dm, sr);
-        b2C = decayCoef(0.035f * dm, sr);
-        noiseC = decayCoef((0.05f + 0.28f * p.decay) * dm, sr);
+        b1C = decayCoef(0.060f * dm * bMul, sr);
+        b2C = decayCoef(0.035f * dm * bMul, sr);
+        noiseC = decayCoef((0.05f + 0.28f * p.decay) * dm * nMul, sr);
         pC = decayCoef(0.006f, sr);
         b1 = b2 = noiseEnv = pEnv = 1.f;
         ph1 = 0.f; ph2 = 0.13f;
@@ -196,7 +220,7 @@ struct Snare {
         const float body = (s1 + 0.18f * s1 * s1) * b1 * 0.6f + (s2 + 0.12f * s2 * s2) * b2 * 0.4f;
         hp.tick(n.next()); lp.tick(hp.hp);
         const float snap = air.lp(lp.lp) * noiseEnv * (0.8f + 0.4f * vel);
-        const float mix = body * (1.f - 0.55f * p.tone) + snap * (0.45f + 1.0f * p.tone);
+        const float mix = body * (1.f - 0.55f * p.tone) * bodyMix + snap * (0.45f + 1.0f * p.tone) * noiseMix;
         b1 *= b1C; b2 *= b2C; noiseEnv *= noiseC; pEnv *= pC;
         return mix * 0.8f * gain;
     }
@@ -209,7 +233,7 @@ struct Clap {
     VoiceParams p;
     double sr = 48000;
     std::array<int, 4> burstAt{};
-    int counter = 1 << 30, tailAt = 0, nextBurst = 4;
+    int counter = 1 << 30, tailAt = 0, nextBurst = 4, numBursts = 4;
     float burstEnv = 0, burstC = 0, tail = 0, tailC = 0, gain = 0;
     Svf bp, room; Noise n;
 
@@ -219,17 +243,26 @@ struct Clap {
         tailAt = burstAt[3];
     }
     void trigger(float vel, float tuneMod, float decayMod) {
+        // models: 0 909, 1 TAJT (two bursts, short), 2 SAL (big hall tail), 3 SNAPP (finger snap)
+        float bpHz = 1150.f, q = 1.3f, tailMul = 1.f, g = 1.4f; numBursts = 4;
+        switch (p.model) {
+            case 1: numBursts = 2; tailMul = 0.35f; break;
+            case 2: bpHz = 950.f; q = 0.9f; tailMul = 2.6f; g = 1.2f; break;
+            case 3: numBursts = 1; bpHz = 2300.f; q = 2.2f; tailMul = 0.22f; g = 1.6f; break;
+            default: break;
+        }
         const float t = semis((p.tune - 0.5f) * 10.f + tuneMod * kRideTuneSemis) * p.tolTune;
-        bp.set(1150.f * t, 1.3f, sr);
-        room.set(900.f * t, 0.7f, sr);
+        bp.set(bpHz * t, q, sr);
+        room.set(bpHz * 0.78f * t, 0.7f, sr);
         burstC = decayCoef(0.0032f, sr);
-        tailC  = decayCoef((0.07f + 0.4f * p.decay) * (1.f + decayMod * kRideDecayPct) * p.tolDecay, sr);
+        tailC  = decayCoef((0.07f + 0.4f * p.decay) * tailMul * (1.f + decayMod * kRideDecayPct) * p.tolDecay, sr);
+        tailAt = burstAt[(size_t)(numBursts - 1)];
         counter = 0; nextBurst = 0; burstEnv = 0.f; tail = 0.f;
-        gain = velGain(vel) * p.level * 1.4f;
+        gain = velGain(vel) * p.level * g;
     }
     float process() {
         if (counter > tailAt && tail < 1e-5f) return 0.f;
-        if (nextBurst < 4 && counter == burstAt[(size_t)nextBurst]) {
+        if (nextBurst < numBursts && counter == burstAt[(size_t)nextBurst]) {
             burstEnv = 1.f - 0.1f * (float)nextBurst; ++nextBurst;
         }
         if (counter == tailAt) tail = 0.75f;
@@ -248,22 +281,34 @@ struct Rim {
     VoiceParams p;
     double sr = 48000;
     float ph1 = 0, ph2 = 0, f1 = 500, f2 = 1700, env = 0, envC = 0, env2 = 0, env2C = 0, gain = 0;
+    float w2 = 0.8f, nzAmt = 0.08f; bool bell = false;
     Svf hp; Noise n;
 
     void prepare(double s) { sr = s; hp.set(380, 0.7f, sr); n.seed(0x219u); }
     void trigger(float vel, float tuneMod, float decayMod) {
+        // models: 0 909 rim, 1 CLAVE (wood), 2 KOSKÄLLA (cowbell), 3 KNACK (low knock)
         const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis) * p.tolTune;
-        f1 = 480.f * t; f2 = 1690.f * t;
-        const float d = (0.006f + 0.025f * p.decay) * (1.f + decayMod * kRideDecayPct) * p.tolDecay;
-        envC = decayCoef(d, sr); env2C = decayCoef(d * 0.5f, sr);
+        float d = (0.006f + 0.025f * p.decay), d2 = 0.5f, g = 0.7f;
+        f1 = 480.f; f2 = 1690.f; w2 = 0.8f; nzAmt = 0.08f * p.tone; bell = false;
+        switch (p.model) {
+            case 1: f1 = 2450.f; w2 = 0.f; d = 0.02f + 0.04f * p.decay; d2 = 1.f; g = 0.55f; nzAmt = 0.f; break;
+            case 2: f1 = 540.f; f2 = 800.f; w2 = 1.f; d = 0.05f + 0.3f * p.decay; d2 = 0.6f; g = 0.42f; bell = true; break;
+            case 3: f1 = 285.f; f2 = 610.f; w2 = 0.5f; d = 0.008f + 0.02f * p.decay; d2 = 0.4f; g = 1.1f; nzAmt = 0.25f; break;
+            default: break;
+        }
+        f1 *= t; f2 *= t;
+        d *= (1.f + decayMod * kRideDecayPct) * p.tolDecay;
+        envC = decayCoef(d, sr); env2C = decayCoef(d * d2, sr);
         env = env2 = 1.f; ph1 = ph2 = 0.f;
-        gain = velGain(vel) * p.level * 0.7f;
+        gain = velGain(vel) * p.level * g;
     }
     float process() {
         if (env < 1e-5f) return 0.f;
         ph1 += f1 / (float)sr; ph1 -= std::floor(ph1);
         ph2 += f2 / (float)sr; ph2 -= std::floor(ph2);
-        const float x = std::sin(kTau * ph1) * env + 0.8f * std::sin(kTau * ph2) * env2 + n.next() * env2 * 0.08f * p.tone;
+        // the cowbell's two oscillators are squarish (band-limited: fundamental + 3rd + 5th)
+        auto osc = [&](float ph) { const float a = kTau * ph; return bell ? std::sin(a) + std::sin(3.f * a) / 3.f + std::sin(5.f * a) / 5.f : std::sin(a); };
+        const float x = osc(ph1) * env + w2 * osc(ph2) * env2 + n.next() * env2 * nzAmt;
         hp.tick(x * 0.55f);
         env *= envC; env2 *= env2C;
         return hp.hp * gain;
@@ -278,23 +323,31 @@ struct Tom {
     double sr = 48000;
     float baseHz = 100;
     float phase = 0, ph2 = 0, freq = 100, amp = 0, ampC = 0, a2 = 0, a2C = 0, pEnv = 0, pC = 0;
-    float nEnv = 0, nC = 0, gain = 0;
+    float nEnv = 0, nC = 0, gain = 0, pAmt = 0.55f;
     Svf nf; Noise n;
 
     void prepare(double s, float base, uint32_t seed) { sr = s; baseHz = base; n.seed(seed); }
     void trigger(float vel, float tuneMod, float decayMod) {
-        freq = baseHz * semis((p.tune - 0.5f) * 12.f + tuneMod * kRideTuneSemis) * p.tolTune;
-        const float d = (0.12f + 0.7f * p.decay) * (1.f + decayMod * kRideDecayPct) * p.tolDecay;
+        // models: 0 909, 1 CONGA (tight, slap), 2 SYNT (long deep sweep), 3 BONGO (high, short)
+        float fMul = 1.f, dMul = 1.f, pTau = 0.045f, a2s = 0.28f, nMul = 1.f; pAmt = 0.55f;
+        switch (p.model) {
+            case 1: fMul = 1.55f; dMul = 0.7f;  pAmt = 0.18f; pTau = 0.02f;  a2s = 0.15f; nMul = 1.6f; break;
+            case 2: fMul = 0.9f;  dMul = 1.6f;  pAmt = 2.2f;  pTau = 0.16f;  a2s = 0.f;   nMul = 0.2f; break;
+            case 3: fMul = 2.4f;  dMul = 0.45f; pAmt = 0.25f; pTau = 0.015f; a2s = 0.2f;  nMul = 1.2f; break;
+            default: break;
+        }
+        freq = baseHz * fMul * semis((p.tune - 0.5f) * 12.f + tuneMod * kRideTuneSemis) * p.tolTune;
+        const float d = (0.12f + 0.7f * p.decay) * dMul * (1.f + decayMod * kRideDecayPct) * p.tolDecay;
         ampC = decayCoef(d, sr); a2C = decayCoef(d * 0.3f, sr);
-        pC   = decayCoef(0.045f, sr);
+        pC   = decayCoef(pTau, sr);
         nC   = decayCoef(0.012f, sr);
-        nf.set(freq * 5.f, 0.8f, sr);
-        amp = 1.f; a2 = 0.28f; pEnv = 1.f; nEnv = 0.15f + 0.35f * p.tone; phase = ph2 = 0.f;
+        nf.set(std::min(freq * 5.f, (float)(sr * 0.4)), 0.8f, sr);
+        amp = 1.f; a2 = a2s; pEnv = 1.f; nEnv = (0.15f + 0.35f * p.tone) * nMul; phase = ph2 = 0.f;
         gain = velGain(vel) * p.level;
     }
     float process() {
         if (amp < 1e-5f) return 0.f;
-        const float f = freq * (1.f + 0.55f * pEnv);
+        const float f = freq * (1.f + pAmt * pEnv);
         phase += f / (float)sr; phase -= std::floor(phase);
         ph2   += f * 1.48f / (float)sr; ph2 -= std::floor(ph2);   // inharmonic head mode
         nf.tick(n.next());
@@ -313,8 +366,11 @@ struct CymbalRom {
     static constexpr double kRate = 32000.0;
     std::vector<float> data;
 
+    // squares = band-limited additive squares (909/808 metal), else pure sines (bells, FM-ish ring);
+    // noiseMix blends in filtered white noise (crash, sizzle, noise hats); stick = attack noise burst
     static CymbalRom build(const std::array<float, 6>& freqs, float bpHz, float q, float hpHz,
-                           float seconds, float naturalTau, uint32_t seed) {
+                           float seconds, float naturalTau, uint32_t seed,
+                           float noiseMix = 0.f, bool squares = true, float stickAmt = 0.6f) {
         CymbalRom r;
         const size_t n = (size_t)(seconds * kRate);
         r.data.assign(n, 0.f);
@@ -325,8 +381,10 @@ struct CymbalRom {
         // additive, band-limited squares
         for (size_t o = 0; o < 6; ++o) {
             const float f = freqs[o];
+            if (f <= 0.f) continue;
             for (int k = 1; (float)k * f < nyq; k += 2) {
-                const float a = 4.f / (kPi * (float)k) / 6.f;
+                if (!squares && k > 1) break;
+                const float a = (squares ? 4.f / (kPi * (float)k) : 1.f) / 6.f;
                 const double w = kTau * (double)k * f / kRate;
                 const double p0 = kTau * (double)k * ph[o];
                 // rotate a phasor instead of calling sin() per sample
@@ -339,10 +397,11 @@ struct CymbalRom {
         }
         Svf bp, hp, stick; bp.set(bpHz, q, kRate); hp.set(hpHz, 0.7f, kRate); stick.set(bpHz * 1.2f, 0.8f, kRate);
         const float dc = decayCoef(naturalTau, kRate), sc = decayCoef(0.004f, kRate);
-        float env = 1.f, se = 0.6f, peak = 1e-9f;
+        float env = 1.f, se = stickAmt, peak = 1e-9f;
         for (size_t i = 0; i < n; ++i) {
-            bp.tick(r.data[i]); hp.tick(bp.bp);
-            stick.tick(nz.next());
+            const float w = nz.next();
+            bp.tick(r.data[i] * (1.f - noiseMix) + w * noiseMix * 0.8f); hp.tick(bp.bp);
+            stick.tick(w);
             r.data[i] = (hp.hp * 3.f + stick.bp * se) * env;
             env *= dc; se *= sc;
             peak = std::max(peak, std::fabs(r.data[i]));
@@ -359,6 +418,31 @@ struct CymbalRom {
         static const CymbalRom r = build({ 151.f, 202.5f, 264.4f, 329.6f, 436.0f, 515.3f }, 5600.f, 0.55f, 3200.f, 3.5f, 1.1f, 0xB1Du);
         return r;
     }
+    // ---- the extra models ----
+    static const CymbalRom& hat808() {     // brighter, rawer square metal, no stick
+        static const CymbalRom r = build({ 205.3f, 304.4f, 369.6f, 522.7f, 540.f, 800.f }, 7200.f, 0.55f, 6000.f, 1.2f, 0.22f, 0x808u, 0.f, true, 0.f);
+        return r;
+    }
+    static const CymbalRom& hatNoise() {   // white-noise hat, like a cheap drum box
+        static const CymbalRom r = build({ 0, 0, 0, 0, 0, 0 }, 9500.f, 0.5f, 7000.f, 1.2f, 0.25f, 0x4E0u, 1.f, true, 0.3f);
+        return r;
+    }
+    static const CymbalRom& hatMetal() {   // inharmonic sine ring, FM-ish, industrial
+        static const CymbalRom r = build({ 1210.f, 1793.f, 2613.f, 3301.f, 4877.f, 6453.f }, 6000.f, 0.4f, 2800.f, 1.4f, 0.35f, 0x3E7u, 0.08f, false, 0.4f);
+        return r;
+    }
+    static const CymbalRom& crash() {
+        static const CymbalRom r = build({ 196.f, 263.f, 344.f, 428.f, 567.f, 670.f }, 6500.f, 0.4f, 3500.f, 4.5f, 1.6f, 0xC4Au, 0.55f, true, 0.8f);
+        return r;
+    }
+    static const CymbalRom& bell() {        // ride bell: few strong partials
+        static const CymbalRom r = build({ 612.f, 1438.f, 1872.f, 2604.f, 3470.f, 4211.f }, 3000.f, 0.3f, 500.f, 2.5f, 0.9f, 0xBE1u, 0.f, false, 0.35f);
+        return r;
+    }
+    static const CymbalRom& sizzle() {
+        static const CymbalRom r = build({ 151.f, 202.5f, 264.4f, 329.6f, 436.0f, 515.3f }, 7000.f, 0.5f, 4000.f, 4.f, 1.4f, 0x512u, 0.35f, true, 0.5f);
+        return r;
+    }
 };
 
 // ---------------------------------------------------------------------
@@ -367,6 +451,8 @@ struct CymbalRom {
 struct RomVoice {
     VoiceParams p;
     const CymbalRom* rom = nullptr;
+    std::array<const CymbalRom*, kNumModels> roms{};
+    std::array<float, kNumModels> decayMul{ 1.f, 1.f, 1.f, 1.f };
     double sr = 48000, pos = 1e12, step = 1;
     float minDecay = 0.02f, maxDecay = 0.4f;
     int   romBits = 0;            // 0 = clean full resolution, 6 = original 909 ROM grit
@@ -381,10 +467,12 @@ struct RomVoice {
         pos = 1e12;
     }
     void trigger(float vel, float tuneMod, float decayMod) {
+        const int m = std::clamp(p.model, 0, kNumModels - 1);
+        if (roms[(size_t)m]) rom = roms[(size_t)m];
         const float t = semis((p.tune - 0.5f) * 8.f + tuneMod * kRideTuneSemis) * p.tolTune;
         step = CymbalRom::kRate / sr * t;
         recon.set(std::min(reconHz * t * (0.7f + 0.6f * p.tone), (float)(sr * 0.45)), 0.6f, sr);
-        const float d = (minDecay + (maxDecay - minDecay) * p.decay * p.decay) * p.tolDecay;
+        const float d = (minDecay + (maxDecay - minDecay) * p.decay * p.decay) * p.tolDecay * decayMul[(size_t)m];
         envC = decayCoef(d * (1.f + decayMod * kRideDecayPct), sr);
         env = 1.f; choking = false; pos = 0.0;
         gain = velGain(vel) * p.level;
@@ -431,6 +519,10 @@ struct Kit {
         ch.prepare  (sr, CymbalRom::hat(),  0.012f, 0.11f, 15000.f);
         oh.prepare  (sr, CymbalRom::hat(),  0.10f,  0.75f, 15000.f);
         ride.prepare(sr, CymbalRom::ride(), 0.45f,  2.6f,  13000.f);
+        // all ROMs are built here (once), never on the audio thread
+        ch.roms = oh.roms = { &CymbalRom::hat(), &CymbalRom::hat808(), &CymbalRom::hatNoise(), &CymbalRom::hatMetal() };
+        ride.roms = { &CymbalRom::ride(), &CymbalRom::crash(), &CymbalRom::bell(), &CymbalRom::sizzle() };
+        ride.decayMul = { 1.f, 1.5f, 0.6f, 1.2f };
     }
 
     VoiceParams& params(int inst) {

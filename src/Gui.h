@@ -366,7 +366,7 @@ public:
         g.drawText ("BPM", juce::Rectangle<float> (cx - ir, cy + ir * 0.06f, ir * 2, ir * 0.26f), juce::Justification::centred, false);
         const bool locked = std::abs (slip) < 2.f;
         g.setColour (locked ? C::tube : C::alarm);
-        const juce::String s = locked ? inPhase : (juce::String (std::abs (slip), 0) + " MS " + (slip > 0 ? behind : ahead));
+        const juce::String s = locked ? inPhase : (juce::String (juce::roundToInt (std::abs (slip))) + " MS " + (slip > 0 ? behind : ahead));
         g.drawText (s, juce::Rectangle<float> (cx - ir, cy + ir * 0.34f, ir * 2, ir * 0.26f), juce::Justification::centred, false);
     }
 private:

@@ -1,5 +1,6 @@
 // MASKINHALLEN : MOTSTÅND — the DOCKLANDS panel (step 4b)
 #include "PluginEditor.h"
+#include "Presets.h"
 #include <numeric>
 
 using namespace motstand;
@@ -322,8 +323,34 @@ LaneRow::LaneRow (MotstandProcessor& p, int i, const int& editMode) : grid (p, i
     mute.onClick = [this] { repaint(); };
 }
 
+void LaneRow::poll()
+{
+    const int m = (int) proc.apvts.getRawParameterValue (pid::inst (inst, "model"))->load();
+    if (m != lastModel) { lastModel = m; repaint(); }
+}
+
+void LaneRow::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.x < xName || e.x > xName + 92) return;
+    // click the Dymo name: pick one of the four sound models
+    const int cur = (int) proc.apvts.getRawParameterValue (pid::inst (inst, "model"))->load();
+    juce::PopupMenu m;
+    m.addSectionHeader (lang.t ("LJUD FÖR ", "SOUND FOR ") + name);
+    for (int k = 0; k < kNumModels; ++k)
+        m.addItem (k + 1, u (lang.en ? kModelEN[inst][k] : kModelSV[inst][k]), true, k == cur);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMinimumWidth (140),
+        [this] (int r)
+        {
+            if (r <= 0) return;
+            if (auto* p = proc.apvts.getParameter (pid::inst (inst, "model")))
+            { p->beginChangeGesture(); p->setValueNotifyingHost (p->convertTo0to1 ((float) (r - 1))); p->endChangeGesture(); }
+            poll();
+        });
+}
+
 void LaneRow::setLang (const Lang& l)
 {
+    lang = l;
     name = u (l.en ? kInstNameEN[inst] : kInstNameSV[inst]);
     mute.setButtonText (l.t ("TYST", "MUTE"));
     // JUCE forgets the selection when the shown text no longer matches, so restore it by id
@@ -331,6 +358,7 @@ void LaneRow::setLang (const Lang& l)
     for (int m = 0; m < kNumSlipModes; ++m) mode.changeItemText (m + 1, l.en ? kSlipModeEN[m] : kSlipModeName[m]);
     mode.setSelectedId (sel, juce::dontSendNotification);
     dice.setTooltip (l.t ("Slumpa mönstret för ", "Randomise the pattern for ") + name);
+    setTooltip (l.t ("Klicka på namnet för att byta ljud", "Click the name to change the sound"));
     grid.setTooltip (l.t ("Klicka = slag. Dra upp/ner = styrka. Högerklick = accent/mjuk/av.",
                           "Click = hit. Drag up/down = velocity. Right click = accent/soft/off."));
     len.setTooltip (l.t ("Loopens längd i steg (1-32)", "Loop length in steps (1-32)"));
@@ -357,8 +385,14 @@ void LaneRow::paint (juce::Graphics& g)
 {
     const bool muted = mute.getToggleState();
     if (inst % 2 == 0) { g.setColour (juce::Colours::white.withAlpha (0.025f)); g.fillRect (getLocalBounds()); }
-    dymo (g, juce::Rectangle<float> ((float) xName, 9.f, 92.f, (float) getHeight() - 18.f), name,
-          muted ? juce::Colour (0xff3a1610) : juce::Colour (0xff141414));
+    const int m = juce::jlimit (0, kNumModels - 1, (int) proc.apvts.getRawParameterValue (pid::inst (inst, "model"))->load());
+    auto tag = juce::Rectangle<float> ((float) xName, 7.f, 92.f, (float) getHeight() - 14.f);
+    dymo (g, tag.withTrimmedBottom (m > 0 ? 9.f : 2.f), name, muted ? juce::Colour (0xff3a1610) : juce::Colour (0xff141414));
+    if (m > 0)
+    {   // the chosen sound model, stencilled under the tape
+        g.setFont (stencil (8.5f)); g.setColour (C::tube.withAlpha (0.9f));
+        g.drawText (u (lang.en ? kModelEN[inst][m] : kModelSV[inst][m]), tag.removeFromBottom (10.f), juce::Justification::centred, false);
+    }
     // VINKELSLIP well
     g.setColour (juce::Colours::black.withAlpha (0.25f));
     g.fillRoundedRectangle ((float) xMode - 6.f, 3.f, (float) (xSend - xMode) - 4.f, (float) getHeight() - 6.f, 4.f);
@@ -423,6 +457,21 @@ Root::Root (MotstandProcessor& p)
     wall = makeRustWall (W, H);
 
     // ---- top bar ----
+    presetBox.addItem ("FABRIK", 1);
+    {
+        juce::String lastCat;
+        for (int i = 0; i < (int) styles().size(); ++i)
+        {
+            const auto cat = u (styles()[(size_t) i].cat);
+            if (cat != lastCat) { presetBox.addSectionHeading (cat); lastCat = cat; }
+            presetBox.addItem (u (styles()[(size_t) i].name), i + 2);
+        }
+    }
+    presetBox.onChange = [this] { pickPreset (presetBox.getSelectedId() - 1); };
+    prevPreset.setButtonText ("<"); nextPreset.setButtonText (">");
+    prevPreset.onClick = [this] { pickPreset ((proc.currentPreset + numPresets() - 1) % numPresets()); };
+    nextPreset.onClick = [this] { pickPreset ((proc.currentPreset + 1) % numPresets()); };
+    for (auto* c : std::initializer_list<juce::Component*> { &presetBox, &prevPreset, &nextPreset }) addAndMakeVisible (*c);
     addAndMakeVisible (langBtn);
     langBtn.onClick = [this] { setLang (! lang.en); };
     romBox.addItem ("REN", 1); romBox.addItem ("909 6-BIT", 2);
@@ -550,6 +599,16 @@ void Root::randomiseSmog()
     setParam (pid::smogThr, 2.5f + r.nextFloat() * 2.f);
 }
 
+void Root::pickPreset (int index)
+{
+    if (index < 0) return;
+    proc.loadPreset (index);
+    shownPreset = index;
+    presetBox.setSelectedId (index + 1, juce::dontSendNotification);
+    for (auto& l : lanes) { l->poll(); l->grid.repaint(); }
+    setLang (lang.en);   // refresh combo texts (slip modes etc.) after the jump
+}
+
 void Root::setEditMode (int m)
 {
     editMode = m;
@@ -601,6 +660,8 @@ void Root::setLang (bool english)
     lang.en = english;
     proc.apvts.state.setProperty ("lang", english ? "en" : "sv", nullptr);
     langBtn.setButtonText (english ? "EN" : "SV");
+    presetBox.setTooltip (lang.t ("Presets: kit, mönster A-H, VINKELSLIP och effekter", "Presets: kit, patterns A-H, VINKELSLIP and effects"));
+    prevPreset.setTooltip (lang.t ("Förra preset", "Previous preset")); nextPreset.setTooltip (lang.t ("Nästa preset", "Next preset"));
     langBtn.setTooltip (u ("Byt språk / Switch language"));
     const int romSel = 1 + (int) proc.apvts.getRawParameterValue (pid::romMode)->load();
     romBox.changeItemText (1, lang.t ("REN", "CLEAN"));
@@ -669,6 +730,9 @@ void Root::resized()
 {
     // top bar
     langBtn.setBounds (1140, 12, 44, 24);
+    prevPreset.setBounds (488, 13, 24, 22);
+    presetBox.setBounds (516, 13, 250, 22);
+    nextPreset.setBounds (770, 13, 24, 22);
     romBox.setBounds (1020, 13, 112, 22);
     midiBtn.setBounds (930, 13, 82, 22);
     seedDice.setBounds (898, 13, 24, 22);
@@ -729,8 +793,7 @@ void Root::paint (juce::Graphics& g)
     g.setColour (C::paper);
     g.drawText (u ("MOTSTÅND"), 18, 5, 300, 36, juce::Justification::centredLeft, false);
     g.setFont (stencil (10.5f)); g.setColour (C::paperDim);
-    g.drawText (u ("MASKINHALLEN  ·  PHUNKSHUNZ AUDIO  ·  ") + lang.t ("909 SOM VÄGRAR GRIDET", "THE 909 THAT REFUSES THE GRID"),
-                214, 16, 520, 16, juce::Justification::centredLeft, false);
+    g.drawText (u ("MASKINHALLEN  ·  PHUNKSHUNZ AUDIO"), 214, 16, 260, 16, juce::Justification::centredLeft, false);
     {
         const float y = 46.f;
         juce::ColourGradient tube (C::tube.withAlpha (0.0f), 0, y - 6, C::tube.withAlpha (0.22f), 0, y, false);
@@ -794,6 +857,13 @@ void Root::tick()
             b.repaint();
         }
         if (view != lastView) { lastView = view; for (auto& l : lanes) l->grid.repaint(); }
+        if (proc.currentPreset != shownPreset)          // the DAW changed program
+        {
+            shownPreset = proc.currentPreset;
+            presetBox.setSelectedId (shownPreset + 1, juce::dontSendNotification);
+            for (auto& l : lanes) l->grid.repaint();
+        }
+        for (auto& l : lanes) l->poll();
     }
     rings.repaint();
     const float n = proc.apvts.getRawParameterValue (pid::nudge)->load();
