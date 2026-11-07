@@ -1,8 +1,7 @@
-name: Testa MOTSTÅND
+name: Testa LÄCKAGET
 
-# Steg 5: motorn testas på varje push (ca 1 min).
-# Plugintestet (bygger med JUCE, ca 5 min) körs bara när pluginkoden ändras.
-# Zipparna för Mac, Windows och Linux byggs av zippar.yml (startas för hand).
+# Steg 1: ljudmotorn testas på varje push (ca 1 min) och demoljud renderas.
+# Pluginet (JUCE), panelen och zipparna kommer i steg 2-4.
 
 on:
   push:
@@ -16,87 +15,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Testa motorn och rösterna
+      - name: Testa motorn
         run: |
-          g++ -std=c++17 -O2 -Wall -Wextra -Isrc tests/core_test.cpp -o core_test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Isrc tests/core_test.cpp -o core_test
           ./core_test
-          g++ -std=c++17 -O2 -Wall -Wextra -Isrc tests/fx_test.cpp -o fx_test
-          ./fx_test
-          g++ -std=c++17 -O2 -Wall -Wextra -Isrc tests/doom_test.cpp -o doom_test
-          ./doom_test
 
       - name: Rendera demo
         run: |
           g++ -std=c++17 -O2 -Isrc tests/render_demo.cpp -o render_demo
-          ./render_demo MOTSTAND-demo-ren.wav
-          ./render_demo MOTSTAND-demo-vinkelslip.wav slip
-          ./render_demo MOTSTAND-demo-fet.wav fet
+          mkdir -p demo && ./render_demo demo
 
       - name: Ladda upp demon
         uses: actions/upload-artifact@v4
         with:
-          name: MOTSTAND-demo
-          path: MOTSTAND-demo-*.wav
+          name: LACKAGET-demo
+          path: demo/*.wav
           retention-days: 14
-
-  plugin:
-    needs: motor
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Har pluginkoden ändrats?
-        id: changed
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || \
-             git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|CMakeLists.txt|tests/plugin_test.cpp)'; then
-            echo "run=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=no" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Installera beroenden
-        if: steps.changed.outputs.run == 'yes'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev mesa-common-dev
-
-      - name: Bygg och kör plugintestet
-        if: steps.changed.outputs.run == 'yes'
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DMOTSTAND_TESTS=ON
-          cmake --build build --target MotstandTest MotstandSnapshot MotstandTour Motstand_VST3 -j 4
-          ./build/MotstandTest_artefacts/Release/MotstandTest
-
-      - name: Bygg och testa demon
-        if: steps.changed.outputs.run == 'yes'
-        run: |
-          cmake -B build-demo -DCMAKE_BUILD_TYPE=Release -DMOTSTAND_TESTS=ON -DMOTSTAND_DEMO=ON
-          cmake --build build-demo --target MotstandTest MotstandSnapshot -j 4
-          ./build-demo/MotstandTest_artefacts/Release/MotstandTest
-
-      - name: Rendera panelbilder (till hemsidan och Payhip)
-        if: steps.changed.outputs.run == 'yes'
-        run: |
-          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-sv.png sv 1
-          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-en.png en 1
-          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-sv-2x.png sv 2
-          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-haveri.png sv 1 0 30
-          ./build/MotstandTour_artefacts/Release/MotstandTour MOTSTAND-panel-tour.wav 7.5
-          ./build/MotstandTour_artefacts/Release/MotstandTour MOTSTAND-panel-undergang.wav 9 doom
-          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-undergang.png sv 1 0 56 doom
-          ./build/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-las.png en 0.75 0 0 studio locked
-          ./build-demo/MotstandSnapshot_artefacts/Release/MotstandSnapshot MOTSTAND-panel-demo.png en 1 0 0 studio
-
-      - name: Ladda upp panelbilderna
-        if: steps.changed.outputs.run == 'yes'
-        uses: actions/upload-artifact@v4
-        with:
-          name: MOTSTAND-panel
-          path: |
-            MOTSTAND-panel-*.png
-            MOTSTAND-panel-tour.wav
-            MOTSTAND-panel-undergang.wav
-          retention-days: 30
