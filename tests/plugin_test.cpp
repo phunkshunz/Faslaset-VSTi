@@ -152,18 +152,34 @@ int main()
         std::printf ("TEMPO    host 128, machine now %.2f BPM\n", p.getCurrentBpm());
         CHECK (std::fabs (p.getCurrentBpm() - 128.0) < 128.0 * 0.016, "tempo not following host base");
     }
-    // 4. Own output for the kick
+    // 4. Bitwig switches on ALL aux buses by itself: with MULTI UT off everything must stay in MIX
     {
+        auto allOn = [] (MotstandProcessor& p)
+        {
+            auto layout = p.getBusesLayout();
+            for (int k = 0; k < motstand::kNumInstruments; ++k)
+                layout.outputBuses.getReference (1 + k) = juce::AudioChannelSet::stereo();
+            return p.setBusesLayout (layout);
+        };
+        MotstandProcessor ref; ref.prepareToPlay (sr, 512);
+        const auto r0 = run (ref, 6.0);
         MotstandProcessor p;
-        auto layout = p.getBusesLayout();
-        layout.outputBuses.getReference (1 + motstand::KICK) = juce::AudioChannelSet::stereo();
-        CHECK (p.setBusesLayout (layout), "could not enable kick output");
+        CHECK (allOn (p), "could not enable all outputs");
         p.prepareToPlay (sr, 512);
         auto r = run (p, 6.0);
-        std::printf ("MULTIOUT kick bus rms %.3f, snare bus enabled: %s\n", r.auxRms[motstand::KICK],
-                     p.getBus (false, 1 + motstand::SNARE)->isEnabled() ? "yes" : "no");
-        CHECK (r.auxRms[motstand::KICK] > 0.02, "kick bus is silent");
-        CHECK (r.mainRms > 0.01, "mix went silent");
+        std::printf ("ALLBUSES multi off: mix rms %.3f (alone %.3f), kick bus %.4f\n", r.mainRms, r0.mainRms, r.auxRms[motstand::KICK]);
+        CHECK (r.mainRms > r0.mainRms * 0.9, "drums left the MIX when the DAW enabled the aux buses");
+        CHECK (r.auxRms[motstand::KICK] < 1.0e-6, "aux bus got sound with MULTI UT off");
+
+        MotstandProcessor q;
+        CHECK (allOn (q), "could not enable all outputs");
+        q.apvts.getParameter (motstand::pid::multiOut)->setValueNotifyingHost (1.f);
+        q.prepareToPlay (sr, 512);
+        auto m = run (q, 6.0);
+        std::printf ("MULTIOUT on: kick bus rms %.3f, mix %.3f\n", m.auxRms[motstand::KICK], m.mainRms);
+        CHECK (m.auxRms[motstand::KICK] > 0.02, "kick bus is silent with MULTI UT on");
+        q.setCurrentProgram (3);
+        CHECK (q.apvts.getRawParameterValue (motstand::pid::multiOut)->load() > 0.5f, "preset change switched MULTI UT off");
     }
     // 5. MIDI note 36 triggers the kick with the transport stopped
     {

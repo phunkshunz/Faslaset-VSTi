@@ -49,6 +49,7 @@ MotstandProcessor::MotstandProcessor()
     pMaster   = apvts.getRawParameterValue (pid::master);
     pElnat    = apvts.getRawParameterValue (pid::elnat);
     pMidiOut  = apvts.getRawParameterValue (pid::midiOut);
+    pMultiOut = apvts.getRawParameterValue (pid::multiOut);
     pRomMode  = apvts.getRawParameterValue (pid::romMode);
     auto P = [this] (const juce::String& id) { return apvts.getRawParameterValue (id); };
     pHallSize = P (pid::hallSize); pHallDecay = P (pid::hallDecay); pHallDamp = P (pid::hallDamp);
@@ -288,11 +289,14 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     reseed();
 
     // ---- where does each voice go? ----
+    // Bitwig and others switch on every aux bus by themselves, so the aux outputs are only
+    // used when MULTI UT is on. Otherwise every drum stays in MIX.
     std::array<float*, kNumInstruments> auxL {}, auxR {};
+    const bool multi = pMultiOut->load() > 0.5f;
     for (int i = 0; i < kNumInstruments; ++i)
     {
         auto* bus = getBus (false, 1 + i);
-        const bool on = bus != nullptr && bus->isEnabled() && bus->getNumberOfChannels() > 0;
+        const bool on = multi && bus != nullptr && bus->isEnabled() && bus->getNumberOfChannels() > 0;
         toAux[(size_t) i] = on;
         if (on)
         {
@@ -574,7 +578,8 @@ void MotstandProcessor::loadPreset (int index)
     // everything back to factory defaults first (the panel language is not a parameter, it stays)
     for (auto* p : getParameters())
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
-            if (rp->getParameterID() != pid::fill)
+            if (rp->getParameterID() != pid::fill && rp->getParameterID() != pid::multiOut
+                && rp->getParameterID() != pid::midiOut)   // routing settings survive a preset change
             { rp->beginChangeGesture(); rp->setValueNotifyingHost (rp->getDefaultValue()); rp->endChangeGesture(); }
     if (index == 0)
     {

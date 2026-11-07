@@ -491,6 +491,9 @@ Root::Root (MotstandProcessor& p)
     midiBtn.setColour (juce::ToggleButton::tickColourId, C::tube);
     addAndMakeVisible (midiBtn);
     midiAtt = std::make_unique<APVTS::ButtonAttachment> (p.apvts, pid::midiOut, midiBtn);
+    multiBtn.setColour (juce::ToggleButton::tickColourId, C::tube);
+    addAndMakeVisible (multiBtn);
+    multiAtt = std::make_unique<APVTS::ButtonAttachment> (p.apvts, pid::multiOut, multiBtn);
     seed.setSliderStyle (juce::Slider::LinearBarVertical);
     seed.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 20);
     addAndMakeVisible (seed);
@@ -638,6 +641,7 @@ void Root::setupDemo()
     for (auto* c : demoLocked) { c->setEnabled (false); c->setAlpha (0.35f); }
     romBox.setVisible (false);
     midiBtn.setVisible (false);
+    multiBtn.setVisible (false);
     buyBtn.setColour (juce::TextButton::buttonColourId, C::hazard);
     buyBtn.onClick = [] { juce::URL (licens::kKopUrl).launchInDefaultBrowser(); };
     addAndMakeVisible (buyBtn);
@@ -804,6 +808,9 @@ void Root::setLang (bool english)
     romBox.setSelectedId (romSel, juce::dontSendNotification);
     romBox.setTooltip (lang.t ("Cymbalernas ROM: ren eller 909:ans 6-bitars korn", "Cymbal ROM: clean or the 909's 6-bit grit"));
     midiBtn.setButtonText (lang.t ("MIDI UT", "MIDI OUT"));
+    multiBtn.setButtonText (lang.t ("MULTI UT", "MULTI OUT"));
+    multiBtn.setTooltip (lang.t ("PÅ: varje trumma får egen utgång i DAW:en (KICK, VIRVEL ...). AV: allt i MIX.",
+                                 "ON: every drum gets its own output in the DAW (KICK, SNARE ...). OFF: everything in MIX."));
     midiBtn.setTooltip (lang.t ("Skicka varje steg som MIDI, med drift och jitter", "Send every step as MIDI, drift and jitter included"));
     seed.setTooltip (lang.t ("Seed: samma nummer = samma tagning", "Seed: same number = same take"));
     seedDice.setTooltip (lang.t ("Ny seed", "New seed"));
@@ -910,6 +917,7 @@ void Root::resized()
     // page tabs
     tabStudio.setBounds (12, 307, 104, 24);
     tabDoom.setBounds (120, 307, 124, 24);
+    multiBtn.setBounds (1080, 308, 108, 22);
 
     constexpr int fy = 336;   // FX row top
     // VARVSHALL (plate 8,fy 300x152)

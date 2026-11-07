@@ -133,7 +133,7 @@ private:
                         std::atomic<float>* slipMode; std::atomic<float>* slipDrive; std::atomic<float>* slipFeed; std::atomic<float>* slipMix;
                         std::atomic<float>* sendHall; std::atomic<float>* sendEko; std::atomic<float>* model; };
     std::array<InstParams, motstand::kNumInstruments> ip {};
-    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pRomMode,
+    std::atomic<float> *pTempoSrc, *pBpm, *pJitter, *pDrift, *pNudge, *pRide, *pSmog, *pSmogThr, *pSeed, *pMaster, *pElnat, *pMidiOut, *pMultiOut, *pRomMode,
         *pHallSize, *pHallDecay, *pHallDamp, *pHallPre, *pHallLevel, *pHallFreeze,
         *pEkoTime, *pEkoFb, *pEkoTone, *pEkoWear, *pEkoLevel, *pEkoPing,
         *pIsoLow, *pIsoMid, *pIsoHigh, *pKillLow, *pKillMid, *pKillHigh, *pPress, *pPump, *pPattern, *pFill,

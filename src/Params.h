@@ -65,7 +65,7 @@ namespace pid {
     inline juce::String inst(int i, const char* what) { return juce::String(kInstId[i]) + "_" + what; }
     inline const juce::String tempoSrc = "tempoSrc", bpm = "bpm", jitter = "jitter", drift = "drift",
         nudge = "nudge", ride = "ride", smog = "smog", smogThr = "smogThr", seed = "seed", master = "master",
-        elnat = "elnat", midiOut = "midiOut", romMode = "romMode",
+        elnat = "elnat", midiOut = "midiOut", multiOut = "multiOut", romMode = "romMode",
         hallSize = "hallSize", hallDecay = "hallDecay", hallDamp = "hallDamp", hallPre = "hallPre", hallLevel = "hallLevel", hallFreeze = "hallFreeze",
         ekoTime = "ekoTime", ekoFeedback = "ekoFeedback", ekoTone = "ekoTone", ekoWear = "ekoWear", ekoLevel = "ekoLevel", ekoPing = "ekoPing",
         isoLow = "isoLow", isoMid = "isoMid", isoHigh = "isoHigh", killLow = "killLow", killMid = "killMid", killHigh = "killHigh",
@@ -106,6 +106,8 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     l.add(std::make_unique<AudioParameterFloat>(ParameterID{ pid::elnat, 1 }, String::fromUTF8(u8"ELNÄT"),      // 50 Hz workshop hum
           NormalisableRange<float>(0.f, 1.f, 0.01f), 0.f, pct));
     l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::midiOut, 1 }, "MIDI UT", true));
+    // Separate outputs per drum: OFF = everything in MIX, even when the DAW switches on all ten aux buses
+    l.add(std::make_unique<AudioParameterBool>(ParameterID{ pid::multiOut, 1 }, "MULTI UT", false));
     l.add(std::make_unique<AudioParameterChoice>(ParameterID{ pid::romMode, 1 }, "CYMBAL ROM",
           StringArray{ "REN", "909 6-BIT" }, 0));
 

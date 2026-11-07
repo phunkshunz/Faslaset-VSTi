@@ -184,7 +184,7 @@ private:
     int shownPreset = -1;
     void pickPreset (int index);
     juce::ComboBox romBox;
-    juce::ToggleButton midiBtn;
+    juce::ToggleButton midiBtn, multiBtn;
     juce::Slider seed;
     DiceButton seedDice;
     // DIE ZEIT
@@ -239,7 +239,7 @@ private:
 
     std::vector<std::unique_ptr<APVTS::SliderAttachment>> sAtt;
     std::unique_ptr<APVTS::ComboBoxAttachment> romAtt;
-    std::unique_ptr<APVTS::ButtonAttachment> midiAtt, tempoAtt;
+    std::unique_ptr<APVTS::ButtonAttachment> midiAtt, multiAtt, tempoAtt;
     std::vector<std::unique_ptr<APVTS::ButtonAttachment>> bAtt;
     std::unique_ptr<APVTS::ComboBoxAttachment> eTimeAtt;
     void randomiseFx();
