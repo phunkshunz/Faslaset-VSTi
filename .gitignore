@@ -4,3 +4,9 @@ build-*/
 *.wav
 build-test.log
 build-plug.log
+
+# Licensnycklar i klartext hamnar aldrig i repot
+*licensnycklar*
+*.keys.txt
+build/
+.DS_Store

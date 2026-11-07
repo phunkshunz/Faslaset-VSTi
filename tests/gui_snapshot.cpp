@@ -1,6 +1,7 @@
-// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [sv|en] [scale] [pattern 0-7] [preset] [doom]
+// MOTSTÅND — renders the panel to PNG (no window needed). Usage: MotstandSnapshot out.png [sv|en] [scale] [pattern 0-7] [preset] [doom|studio] [locked]
 #include "../src/PluginProcessor.h"
 #include "../src/PluginEditor.h"
+#include "../src/Licens.h"
 
 int main (int argc, char** argv)
 {
@@ -11,10 +12,11 @@ int main (int argc, char** argv)
     const int pattern = argc > 4 ? juce::String (argv[4]).getIntValue() : 0;     // 0..7 = A..H
     const int preset  = argc > 5 ? juce::String (argv[5]).getIntValue() : 0;     // 0 = FABRIK
     const bool doomPage = argc > 6 && juce::String (argv[6]) == "doom";            // show the UNDERGÅNG tab
+    const bool locked = argc > 7 && juce::String (argv[7]) == "locked";            // show the licence box
 
     MotstandProcessor p;
     if (preset > 0) p.loadPreset (preset);
-    p.apvts.state.setProperty ("lang", en ? "en" : "sv", nullptr);
+    sprak::sattEngelska (en);   // SV | EN lives in the shared MASKINHALLEN settings file
     // show some life: a bit of VINKELSLIP and a playing machine
     auto set = [&] (const juce::String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
     set (motstand::pid::pattern, (float) pattern);
@@ -28,6 +30,7 @@ int main (int argc, char** argv)
     juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512);
     for (int b = 0; b < 300; ++b) { juce::MidiBuffer m; p.processBlock (buf, m); }   // ~3 s of playing
 
+    if (locked) licens::upplast().store (false);
     std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
     if (doomPage)   // click the tab, like a user would
         for (auto* c : ed->getChildren())

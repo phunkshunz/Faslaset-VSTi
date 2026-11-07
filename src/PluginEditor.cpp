@@ -332,6 +332,7 @@ void LaneRow::poll()
 void LaneRow::mouseDown (const juce::MouseEvent& e)
 {
     if (e.x < xName || e.x > xName + 92) return;
+    if (MotstandProcessor::isDemo) return;   // DEMO: the sound models are in the full version
     // click the Dymo name: pick one of the four sound models
     const int cur = (int) proc.apvts.getRawParameterValue (pid::inst (inst, "model"))->load();
     juce::PopupMenu m;
@@ -346,6 +347,14 @@ void LaneRow::mouseDown (const juce::MouseEvent& e)
             { p->beginChangeGesture(); p->setValueNotifyingHost (p->convertTo0to1 ((float) (r - 1))); p->endChangeGesture(); }
             poll();
         });
+}
+
+void LaneRow::lockForDemo (std::vector<juce::Component*>& locked)
+{
+    locked.push_back (&dice); locked.push_back (&len); locked.push_back (&mode);
+    for (int k = 0; k < 3; ++k) locked.push_back (&voice[(size_t) k]);     // NIVÅ stays open
+    for (auto& k : slipK) locked.push_back (&k);
+    for (auto& k : sends) locked.push_back (&k);
 }
 
 void LaneRow::setLang (const Lang& l)
@@ -462,6 +471,7 @@ Root::Root (MotstandProcessor& p)
         juce::String lastCat;
         for (int i = 0; i < (int) styles().size(); ++i)
         {
+            if (! MotstandProcessor::presetAllowed (i + 1)) continue;   // DEMO: only the demo presets
             const auto cat = u (styles()[(size_t) i].cat);
             if (cat != lastCat) { presetBox.addSectionHeading (cat); lastCat = cat; }
             presetBox.addItem (u (styles()[(size_t) i].name), i + 2);
@@ -469,11 +479,12 @@ Root::Root (MotstandProcessor& p)
     }
     presetBox.onChange = [this] { pickPreset (presetBox.getSelectedId() - 1); };
     prevPreset.setButtonText ("<"); nextPreset.setButtonText (">");
-    prevPreset.onClick = [this] { pickPreset ((proc.currentPreset + numPresets() - 1) % numPresets()); };
-    nextPreset.onClick = [this] { pickPreset ((proc.currentPreset + 1) % numPresets()); };
+    prevPreset.onClick = [this] { stepPreset (-1); };
+    nextPreset.onClick = [this] { stepPreset (1); };
     for (auto* c : std::initializer_list<juce::Component*> { &presetBox, &prevPreset, &nextPreset }) addAndMakeVisible (*c);
     addAndMakeVisible (langBtn);
-    langBtn.onClick = [this] { setLang (! lang.en); };
+    // SV | EN is shared by every MASKINHALLEN machine on the computer
+    langBtn.onClick = [this] { sprak::sattEngelska (! lang.en); setLang (sprak::engelska()); };
     romBox.addItem ("REN", 1); romBox.addItem ("909 6-BIT", 2);
     addAndMakeVisible (romBox);
     romAtt = std::make_unique<APVTS::ComboBoxAttachment> (p.apvts, pid::romMode, romBox);
@@ -592,7 +603,69 @@ Root::Root (MotstandProcessor& p)
     addAndMakeVisible (slipDice);
     slipDice.onClick = [this] { randomiseSlip(); };
 
-    setLang (p.apvts.state.getProperty ("lang", "sv").toString() == "en");
+    if (MotstandProcessor::isDemo) setupDemo();
+    sprak::laddaOm();   // the choice may have been made in another machine
+    setLang (sprak::engelska());
+}
+
+void Root::stepPreset (int dir)
+{
+    if (MotstandProcessor::isDemo)
+    {
+        const auto& v = MotstandProcessor::demoPresets();
+        const int n = (int) v.size();
+        const auto it = std::find (v.begin(), v.end(), proc.currentPreset);
+        const int pos = it == v.end() ? 0 : (int) (it - v.begin());
+        pickPreset (v[(size_t) ((pos + dir + n) % n)]);
+        return;
+    }
+    pickPreset ((proc.currentPreset + dir + numPresets()) % numPresets());
+}
+
+// ---------------------------------------------------------------- demo
+void Root::setupDemo()
+{
+    std::vector<juce::Component*> l { &jitter, &drift, &fylla, &bpm, &ownTempo, &zeitDice,
+                                      &smogAmt, &smogThr, &elnat, &smogDice,
+                                      &hSize, &hDecay, &hDamp, &hPre, &hLevel, &hFreeze, &eTime, &ePing, &eFb, &eTone, &eWear, &eLevel,
+                                      &iLow, &iMid, &iHigh, &kLow, &kMid, &kHigh, &pAmt, &pPump, &fxDice,
+                                      &mAmt, &mDepth, &mFreq, &mDirt, &mPump, &oGas, &oRpm, &oTone, &oRattle,
+                                      &sAmt, &sSweep, &sColor, &sAlarm, &doomDice,
+                                      &seed, &seedDice, &slipDice };
+    for (int k = 1; k < kNumEditModes; ++k) l.push_back (&modeBtns[(size_t) k]);   // SLAG stays open
+    for (auto& lane : lanes) lane->lockForDemo (l);
+    demoLocked = l;
+    for (auto* c : demoLocked) { c->setEnabled (false); c->setAlpha (0.35f); }
+    romBox.setVisible (false);
+    midiBtn.setVisible (false);
+    buyBtn.setColour (juce::TextButton::buttonColourId, C::hazard);
+    buyBtn.onClick = [] { juce::URL (licens::kKopUrl).launchInDefaultBrowser(); };
+    addAndMakeVisible (buyBtn);
+}
+
+void Root::paintOverChildren (juce::Graphics& g)
+{
+    if (! MotstandProcessor::isDemo) return;
+    // a small padlock on everything that is closed in the demo
+    auto visibleHere = [this] (juce::Component* c)
+    {
+        for (auto* p = c; p != nullptr && p != this; p = p->getParentComponent())
+            if (! p->isVisible()) return false;
+        return true;
+    };
+    for (auto* c : demoLocked)
+    {
+        if (c->getWidth() < 12 || ! visibleHere (c)) continue;
+        const auto b = getLocalArea (c->getParentComponent(), c->getBounds()).toFloat();
+        const float w = 9.f, x = b.getRight() - w - 1.f, y = b.getY() + 1.f;
+        g.setColour (C::night.withAlpha (0.9f));
+        g.fillRoundedRectangle (x - 1.5f, y + 3.f, w + 3.f, 9.5f, 2.f);
+        g.setColour (C::hazard);
+        g.fillRoundedRectangle (x, y + 5.f, w, 6.f, 1.2f);
+        juce::Path shackle;
+        shackle.addCentredArc (x + w * 0.5f, y + 5.f, 2.8f, 3.2f, 0.f, -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, true);
+        g.strokePath (shackle, juce::PathStrokeType (1.4f));
+    }
 }
 
 void Root::setParam (const juce::String& id, float v)
@@ -707,8 +780,22 @@ void Root::randomiseSlip()
 void Root::setLang (bool english)
 {
     lang.en = english;
-    proc.apvts.state.setProperty ("lang", english ? "en" : "sv", nullptr);
     langBtn.setButtonText (english ? "EN" : "SV");
+    if (MotstandProcessor::isDemo)
+    {
+        const auto tip = lang.t ("Finns i fullversionen", "In the full version");
+        for (auto* c : demoLocked)
+        {
+            if (auto* k = dynamic_cast<LabeledKnob*> (c)) k->slider.setTooltip (tip);
+            else if (auto* t = dynamic_cast<juce::SettableTooltipClient*> (c)) t->setTooltip (tip);
+        }
+        buyBtn.setButtonText (lang.t ("KÖP FULLVERSION", "BUY FULL VERSION"));
+        buyBtn.setTooltip (lang.t ("Lås upp allt i MOTSTÅND: €20, eller alla maskiner i bundlen för €89",
+                                   "Unlock everything in MOTSTÅND: €20, or every machine in the bundle for €89"));
+        prevPreset.setTooltip (lang.t ("Förra demoläget", "Previous demo preset"));
+        nextPreset.setTooltip (lang.t ("Nästa demoläge", "Next demo preset"));
+    }
+    if (onLang) onLang();
     presetBox.setTooltip (lang.t ("Presets: kit, mönster A-H, VINKELSLIP och effekter", "Presets: kit, patterns A-H, VINKELSLIP and effects"));
     prevPreset.setTooltip (lang.t ("Förra preset", "Previous preset")); nextPreset.setTooltip (lang.t ("Nästa preset", "Next preset"));
     langBtn.setTooltip (u ("Byt språk / Switch language"));
@@ -750,7 +837,7 @@ void Root::setLang (bool english)
     ePing.setButtonText ("PINGPONG");
     eTime.setTooltip (lang.t ("Ekots tid, följer maskinens drivande tempo", "Echo time, follows the machine's drifting tempo"));
     iLow.text = lang.t ("LÅG", "LOW"); iMid.text = lang.t ("MITT", "MID"); iHigh.text = lang.t ("TOPP", "HIGH");
-    iLow.slider.setTooltip (lang.t ("Isolator: mitten = rakt, ner = bort, upp = mer", "Isolator: centre = flat, down = cut, up = boost"));
+    iLow.slider.setTooltip (lang.t ("Isolator: startläget (80 %) är rakt. Ner = mindre, upp = lite mer, KILL = bandet helt bort", "Isolator: the start position (80 %) is flat. Down = less, up = a little more, KILL = the band is gone"));
     pAmt.text = "PRESS"; pPump.text = "PUMP";
     pAmt.slider.setTooltip (lang.t ("Bus-kompressor med automatisk nivå", "Bus compressor with automatic make-up"));
     pPump.slider.setTooltip (lang.t ("Kicken duckar allt annat", "The kick ducks everything else"));
@@ -793,6 +880,7 @@ void Root::resized()
 {
     // top bar
     langBtn.setBounds (1140, 12, 44, 24);
+    buyBtn.setBounds (930, 12, 202, 24);
     prevPreset.setBounds (488, 13, 24, 22);
     presetBox.setBounds (516, 13, 250, 22);
     nextPreset.setBounds (770, 13, 24, 22);
@@ -869,7 +957,9 @@ void Root::paint (juce::Graphics& g)
     g.setColour (C::paper);
     g.drawText (u ("MOTSTÅND"), 18, 5, 300, 36, juce::Justification::centredLeft, false);
     g.setFont (stencil (10.5f)); g.setColour (C::paperDim);
-    g.drawText (u ("MASKINHALLEN  ·  PHUNKSHUNZ AUDIO"), 214, 16, 260, 16, juce::Justification::centredLeft, false);
+    if (MotstandProcessor::isDemo) g.setColour (C::hazard);
+    g.drawText (MotstandProcessor::isDemo ? u ("DEMO  ·  MASKINHALLEN  ·  PHUNKSHUNZ AUDIO") : u ("MASKINHALLEN  ·  PHUNKSHUNZ AUDIO"),
+                214, 16, 272, 16, juce::Justification::centredLeft, false);
     {
         const float y = 46.f;
         juce::ColourGradient tube (C::tube.withAlpha (0.0f), 0, y - 6, C::tube.withAlpha (0.22f), 0, y, false);
@@ -983,6 +1073,13 @@ MotstandEditor::MotstandEditor (MotstandProcessor& p)
     root.setLookAndFeel (&lnf);
     tips.setLookAndFeel (&lnf);
     addAndMakeVisible (root);
+    if (! MotstandProcessor::isDemo)
+    {
+        addChildComponent (licensRuta);    // visible by itself while the machine is locked
+        licensRuta.onUpplast = [this] { repaint(); };
+    }
+    root.onLang = [this] { licensRuta.texter(); };
+    licensRuta.texter();
     setResizable (true, true);
     setResizeLimits (660, 543, 1800, 1482);
     if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) dock::Root::W / dock::Root::H);
@@ -1003,4 +1100,6 @@ void MotstandEditor::resized()
     const float s = (float) getWidth() / (float) dock::Root::W;
     root.setBounds (0, 0, dock::Root::W, dock::Root::H);
     root.setTransform (juce::AffineTransform::scale (s));
+    licensRuta.setBounds (getLocalBounds());
+    licensRuta.toFront (false);
 }

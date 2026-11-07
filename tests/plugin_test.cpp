@@ -2,6 +2,7 @@
 //   cmake -B build -DMOTSTAND_TESTS=ON && cmake --build build --target MotstandTest && ./build/.../MotstandTest
 #include "../src/PluginProcessor.h"
 #include "../src/Presets.h"
+#include "../src/Licens.h"
 #include <chrono>
 #include <cstdio>
 #include <functional>
@@ -70,9 +71,60 @@ static int countNotes (MotstandProcessor& p, double seconds, int note, std::func
 static void setP (MotstandProcessor& p, const juce::String& id, float v)
 { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); }
 
+#if MOTSTAND_DEMO
+// ---- the demo build: 8 presets, locked knobs stay put, no MIDI out, still sounds ----
+static int demoTests()
+{
+    const double sr = 48000;
+    MotstandProcessor p;
+    std::printf ("DEMO     %d programs: ", p.getNumPrograms());
+    for (int i = 0; i < p.getNumPrograms(); ++i) std::printf ("%s%s", i ? ", " : "", p.getProgramName (i).toRawUTF8());
+    std::printf ("\n");
+    CHECK (MotstandProcessor::isDemo, "not a demo build");
+    CHECK (p.getNumPrograms() == 8, "demo should have 8 presets (%d)", p.getNumPrograms());
+    p.loadPreset (30);
+    CHECK (p.currentPreset == 0, "a full-version preset loaded in the demo");
+    p.setCurrentProgram (3);
+    CHECK (p.currentPreset == MotstandProcessor::demoPresets()[3], "program change in the demo went wrong");
+
+    // a locked knob springs back (also against DAW automation), an open one stays
+    setP (p, motstand::pid::jitter, 0.1f);
+    setP (p, motstand::pid::master, -6.f);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (400);
+    const float jit = p.apvts.getRawParameterValue (motstand::pid::jitter)->load();
+    const float mas = p.apvts.getRawParameterValue (motstand::pid::master)->load();
+    std::printf ("DEMOLÅS  JITTER set to 0.10 -> %.2f (locked), MASTER set to -6 -> %.1f (open)\n", jit, mas);
+    CHECK (std::abs (jit - 0.1f) > 0.05f, "locked JITTER did not spring back");
+    CHECK (std::abs (mas + 6.f) < 0.05f, "open MASTER was reset");
+
+    p.prepareToPlay (sr, 512);
+    juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512);
+    int notes = 0; double sum = 0;
+    for (int b = 0; b < 300; ++b)
+    {
+        juce::MidiBuffer m; p.processBlock (buf, m);
+        for (const auto meta : m) if (meta.getMessage().isNoteOn()) ++notes;
+        sum += buf.getRMSLevel (0, 0, 512);
+    }
+    std::printf ("DEMOLJUD rms %.3f, MIDI notes out: %d\n", sum / 300, notes);
+    CHECK (sum / 300 > 0.01, "the demo is silent");
+    CHECK (notes == 0, "the demo sends MIDI out");
+
+    juce::MemoryBlock mb; p.getStateInformation (mb);
+    MotstandProcessor q; q.setStateInformation (mb.getData(), (int) mb.getSize());
+    CHECK (q.currentPreset == 0, "the demo restored a saved state");
+
+    std::printf (failures ? "\n%d FAILED\n" : "\nALL OK (demo)\n", failures);
+    return failures ? 1 : 0;
+}
+#endif
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+   #if MOTSTAND_DEMO
+    return demoTests();
+   #endif
     const double sr = 48000;
 
     // 1. Standalone (no host): runs by itself and makes sound
@@ -282,6 +334,28 @@ int main()
         std::printf ("BANK     step with FILL+3-roll+locks in pattern E restored: %s\n", same ? "yes" : "no");
         CHECK (same, "bank state not restored");
         CHECK (y.getCell (3, motstand::TOM_LO, 0).ratchet == 2, "factory pattern D lost");
+    }
+
+    // 18. The licence: without a valid key the full version is silent and sends no MIDI
+    {
+        MotstandProcessor p; p.prepareToPlay (sr, 512);
+        licens::upplast().store (false);
+        juce::AudioBuffer<float> buf (p.getTotalNumOutputChannels(), 512);
+        double sum = 0; int notes = 0;
+        for (int b = 0; b < 200; ++b)
+        {
+            juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 120), 0);
+            p.processBlock (buf, m);
+            sum += buf.getMagnitude (0, 512);
+            for (const auto meta : m) if (meta.getMessage().isNoteOn()) ++notes;
+        }
+        licens::upplast().store (true);
+        auto r = run (p, 2.0);
+        std::printf ("LICENS   locked: peak sum %.6f, MIDI out %d; unlocked again: rms %.3f\n", sum, notes, r.mainRms);
+        CHECK (sum == 0.0 && notes == 0, "locked full version still makes sound or MIDI");
+        CHECK (r.mainRms > 0.01, "unlocking did not bring the sound back");
+        CHECK (! licens::giltig ("AAAA-BBBB-CCCC-DDDD") && ! licens::giltig ("") && ! licens::giltig ("hello"), "a made-up key was accepted");
+        CHECK (licens::normalisera ("abcd-efgh ijkl-mnop") == "ABCDEFGH1JK1MN0P", "key normalising changed");
     }
 
     // 17. UNDERGÅNG really drives the machine (regression: the macro used to be overwritten)

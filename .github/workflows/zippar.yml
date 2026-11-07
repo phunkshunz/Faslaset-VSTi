@@ -1,0 +1,125 @@
+name: Bygg MOTSTAND-zippar
+
+# Bygger fullversionen och demon för Mac, Windows och Linux.
+# Startas för hand (Actions > Bygg MOTSTAND-zippar > Run workflow), eller med en tagg v1.0.0 osv.
+#
+# Repot är publikt, så det blir INGA releaser här: zipparna hamnar som artefakter i 3 dagar.
+# Ladda ner dem och lägg fullversionen i Payhip och demon på hemsidan.
+# Fullversionen är tyst tills en köpt nyckel klistras in, så en läckt zip är bara en låst demo.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [FULL, DEMO]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfigurera
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          -DMOTSTAND_DEMO=${{ matrix.variant == 'DEMO' && 'ON' || 'OFF' }}
+
+      - name: Bygg
+        run: cmake --build build --config Release -j 3
+
+      - name: Paketera
+        run: |
+          NAME=${{ matrix.variant == 'DEMO' && 'MOTSTAND-DEMO' || 'MOTSTAND' }}
+          ART=build/Motstand_artefacts/Release
+          D=dist/$NAME
+          mkdir -p $D
+          cp -R "$ART/VST3/$NAME.vst3" "$ART/AU/$NAME.component" "$ART/Standalone/$NAME.app" $D/
+          sed "s/MOTSTAND\./$NAME./g; s/Installerar MOTSTAND/Installerar $NAME/; s/Installs MOTSTAND/Installs $NAME/; s/Done! MOTSTAND/Done! $NAME/" scripts/installera.command > $D/installera.command
+          chmod +x $D/installera.command
+          cp docs/MOTSTAND-manual.html docs/MOTSTAND-panel.png $D/
+          for b in $D/$NAME.vst3 $D/$NAME.component $D/$NAME.app; do codesign --force --deep --sign - "$b"; done
+          lipo -archs "$D/$NAME.vst3/Contents/MacOS/$NAME"
+          cd dist && ditto -c -k --keepParent $NAME $NAME-macOS.zip && ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant == 'DEMO' && 'MOTSTAND-DEMO' || 'MOTSTAND' }}-macOS
+          path: dist/*-macOS.zip
+          retention-days: 3
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [FULL, DEMO]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfigurera
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DMOTSTAND_DEMO=${{ matrix.variant == 'DEMO' && 'ON' || 'OFF' }}
+
+      - name: Bygg
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Paketera
+        shell: pwsh
+        run: |
+          $NAME = "${{ matrix.variant == 'DEMO' && 'MOTSTAND-DEMO' || 'MOTSTAND' }}"
+          $ART = "build/Motstand_artefacts/Release"
+          $D = "dist/$NAME"
+          New-Item -ItemType Directory -Force $D | Out-Null
+          Copy-Item -Recurse "$ART/VST3/$NAME.vst3" $D/
+          Copy-Item "$ART/Standalone/$NAME.exe" $D/
+          (Get-Content scripts/installera.bat) -replace 'MOTSTAND\.vst3', "$NAME.vst3" -replace 'Done! MOTSTAND', "Done! $NAME" | Set-Content "$D/installera.bat"
+          Copy-Item docs/MOTSTAND-manual.html, docs/MOTSTAND-panel.png $D/
+          Compress-Archive -Path $D -DestinationPath "dist/$NAME-Windows.zip"
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant == 'DEMO' && 'MOTSTAND-DEMO' || 'MOTSTAND' }}-Windows
+          path: dist/*-Windows.zip
+          retention-days: 3
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [FULL, DEMO]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installera beroenden
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev mesa-common-dev
+
+      - name: Konfigurera
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DMOTSTAND_DEMO=${{ matrix.variant == 'DEMO' && 'ON' || 'OFF' }}
+
+      - name: Bygg
+        run: cmake --build build --config Release --target Motstand_VST3 Motstand_LV2 -j 4
+
+      - name: Paketera
+        run: |
+          NAME=${{ matrix.variant == 'DEMO' && 'MOTSTAND-DEMO' || 'MOTSTAND' }}
+          D=dist/$NAME
+          mkdir -p $D
+          cp -R build/Motstand_artefacts/Release/VST3/*.vst3 build/Motstand_artefacts/Release/LV2/*.lv2 $D/
+          cp scripts/installera-linux.sh docs/MOTSTAND-manual.html docs/MOTSTAND-panel.png $D/
+          chmod +x $D/installera-linux.sh
+          cd dist && zip -r -y $NAME-Linux.zip $NAME && ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant == 'DEMO' && 'MOTSTAND-DEMO' || 'MOTSTAND' }}-Linux
+          path: dist/*-Linux.zip
+          retention-days: 3

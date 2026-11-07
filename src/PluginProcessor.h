@@ -1,5 +1,15 @@
-// MASKINHALLEN : MOTSTÅND — audio processor (step 3)
+// MASKINHALLEN : MOTSTÅND — audio processor
 #pragma once
+
+// DEMO: byggs med -DMOTSTAND_DEMO=ON. Samma kod, men bara några rattar öppna.
+#ifndef MOTSTAND_DEMO
+ #define MOTSTAND_DEMO 0
+#endif
+// Testbyggen (plugintest, rundtur, skärmbild) körs upplåsta. Aldrig i det som säljs.
+#ifndef MOTSTAND_TEST_UNLOCKED
+ #define MOTSTAND_TEST_UNLOCKED 0
+#endif
+
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 #include "MotstandCore.h"
@@ -7,11 +17,18 @@
 #include "Params.h"
 #include "Vinkelslip.h"
 
-class MotstandProcessor : public juce::AudioProcessor
+class MotstandProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     MotstandProcessor();
-    ~MotstandProcessor() override = default;
+    ~MotstandProcessor() override { stopTimer(); }
+
+    static constexpr bool isDemo = MOTSTAND_DEMO != 0;
+    // DEMO: the presets you can try (index into the full list)
+    static const std::vector<int>& demoPresets();
+    static bool presetAllowed (int index);
+    // DEMO: parameters you may turn (everything else is held at the preset's value)
+    static bool demoOpen (const juce::String& paramId);
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -22,7 +39,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "MOTSTAND"; }
+    const juce::String getName() const override { return juce::String::fromUTF8 (isDemo ? "MOTSTÅND DEMO" : "MOTSTÅND"); }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
@@ -30,8 +47,8 @@ public:
 
     // presets show up as programs in the DAW, too
     int getNumPrograms() override;
-    int getCurrentProgram() override { return currentPreset; }
-    void setCurrentProgram (int index) override { loadPreset (index); }
+    int getCurrentProgram() override;
+    void setCurrentProgram (int index) override;
     const juce::String getProgramName (int index) override;
     void loadPreset (int index);
     int currentPreset = 0;
@@ -69,6 +86,9 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
 private:
+    void timerCallback() override;
+    std::vector<std::pair<juce::String, float>> demoLocked;   // DEMO: locked parameters and their preset values
+    void captureDemoLocks();
     static BusesProperties makeBuses();
     void pullParameters();
     void reseed();

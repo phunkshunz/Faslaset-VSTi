@@ -2,6 +2,7 @@
 #pragma once
 #include "PluginProcessor.h"
 #include "Gui.h"
+#include "Licens.h"
 
 namespace dock {
 
@@ -126,6 +127,7 @@ public:
     void randomise();
     void poll();                                   // repaint if the sound model changed
     void mouseDown (const juce::MouseEvent& e) override;
+    void lockForDemo (std::vector<juce::Component*>& locked);   // DEMO: what this lane keeps closed
     StepGrid grid;
     // layout x positions (design units), shared with the header
     static constexpr int xDice = 6, xName = 32, xGrid = 130, xLen = 618, xKnobs = 666, knobStep = 38, xMode = 826, xSlip = 920, slipStep = 38, xSend = 1042, xMute = 1124, knobW = 36;
@@ -170,7 +172,14 @@ private:
     juce::Image wall;
 
     // top bar
-    juce::TextButton langBtn, prevPreset, nextPreset;
+    juce::TextButton langBtn, prevPreset, nextPreset, buyBtn;
+    std::vector<juce::Component*> demoLocked;
+    void setupDemo();
+    void stepPreset (int dir);
+public:
+    std::function<void()> onLang;          // the editor refreshes the licence box text
+    void paintOverChildren (juce::Graphics& g) override;
+private:
     juce::ComboBox presetBox;
     int shownPreset = -1;
     void pickPreset (int index);
@@ -249,6 +258,7 @@ private:
     void timerCallback() override { root.tick(); }
     dock::DockLnF lnf;
     dock::Root root;
+    licens::Ruta licensRuta;               // fullversionen: ber om nyckeln tills maskinen är upplåst
     juce::TooltipWindow tips { this, 600 };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MotstandEditor)
 };

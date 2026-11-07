@@ -1,7 +1,8 @@
-// MASKINHALLEN : MOTSTÅND — audio processor (step 3)
+// MASKINHALLEN : MOTSTÅND — audio processor
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Presets.h"
+#include "Licens.h"
 
 using namespace motstand;
 
@@ -66,6 +67,63 @@ MotstandProcessor::MotstandProcessor()
 
     const auto fb = factoryBank();
     for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, fb[(size_t) pt]);
+
+   #if MOTSTAND_TEST_UNLOCKED
+    licens::upplast().store (true);
+   #else
+    if (! isDemo) licens::kontrollera();   // fullversionen: finns en giltig nyckel?
+   #endif
+    if (isDemo)
+    {
+        loadPreset (0);
+        startTimerHz (10);                 // holds the locked parameters, also against DAW automation
+    }
+}
+
+// ---------------------------------------------------------------- demo
+const std::vector<int>& MotstandProcessor::demoPresets()
+{
+    static const std::vector<int> v = []
+    {
+        std::vector<int> out { 0 };   // FABRIK
+        const char* names[] = { "MOTORSTAD", "BETONGVALV", "TOMRUMMET", "RULLGARDIN", "DIMMA", u8"ÖKENVÄGEN", "PSYKOS" };
+        for (auto* nm : names)
+            for (int i = 0; i < (int) styles().size(); ++i)
+                if (juce::String::fromUTF8 (styles()[(size_t) i].name) == juce::String::fromUTF8 (nm)) { out.push_back (i + 1); break; }
+        return out;
+    }();
+    return v;
+}
+
+bool MotstandProcessor::presetAllowed (int index)
+{
+    if (! isDemo) return true;
+    const auto& d = demoPresets();
+    return std::find (d.begin(), d.end(), index) != d.end();
+}
+
+bool MotstandProcessor::demoOpen (const juce::String& id)
+{
+    return id == pid::pattern || id == pid::fill || id == pid::nudge || id == pid::master || id == pid::doom
+        || id.endsWith ("_level") || id.endsWith ("_mute");
+}
+
+void MotstandProcessor::captureDemoLocks()
+{
+    demoLocked.clear();
+    for (auto* p : getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! demoOpen (rp->getParameterID()))
+                demoLocked.push_back ({ rp->getParameterID(), apvts.getRawParameterValue (rp->getParameterID())->load() });
+}
+
+void MotstandProcessor::timerCallback()
+{
+    // DEMO: locked parameters go back to the preset, even when the DAW automates them
+    for (const auto& [id, v] : demoLocked)
+        if (auto* raw = apvts.getRawParameterValue (id); raw != nullptr && std::abs (raw->load() - v) > 1.0e-4f)
+            if (auto* rp = apvts.getParameter (id))
+                rp->setValueNotifyingHost (rp->convertTo0to1 (v));
 }
 
 PatternData MotstandProcessor::copyPattern (int pat) const
@@ -167,7 +225,7 @@ void MotstandProcessor::pullParameters()
 
     elnat.amount = pElnat->load();
     kit.setRomBits (pRomMode->load() > 0.5f ? 6 : 0);
-    sendMidi = pMidiOut->load() > 0.5f;
+    sendMidi = ! isDemo && pMidiOut->load() > 0.5f;   // MIDI out is a full-version feature
     const float jitterMax = pJitter->load();
     clock.jitterMaxMs   = jitterMax;
     clock.jitterSigmaMs = jitterMax * 0.4;   // 1.5 ms max -> 0.6 ms sigma
@@ -219,6 +277,8 @@ void MotstandProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
     buffer.clear();
+    // fullversionen utan giltig nyckel: tyst, och inget MIDI ut (nyckelrutan syns i panelen)
+    if (! isDemo && ! licens::upplast().load (std::memory_order_relaxed)) { midi.clear(); return; }
     if (n == 0) return;
     if (mixBuffer.getNumSamples() < n)          // host broke its promise; stay alive
         mixBuffer.setSize (2, n, false, false, true);
@@ -444,6 +504,7 @@ void MotstandProcessor::getStateInformation (juce::MemoryBlock& dest)
 
 void MotstandProcessor::setStateInformation (const void* data, int size)
 {
+    if (isDemo) return;   // demon sparar inget: den startar alltid på FABRIK
     auto xml = getXmlFromBinary (data, size);
     if (xml == nullptr) return;
     auto state = juce::ValueTree::fromXml (*xml);
@@ -481,13 +542,35 @@ void MotstandProcessor::setStateInformation (const void* data, int size)
 }
 
 // ---- presets ----
-int MotstandProcessor::getNumPrograms() { return numPresets(); }
-const juce::String MotstandProcessor::getProgramName (int index) { return presetName (index); }
+// in the demo, the DAW's program list only shows the demo presets
+int MotstandProcessor::getNumPrograms() { return isDemo ? (int) demoPresets().size() : numPresets(); }
+
+const juce::String MotstandProcessor::getProgramName (int index)
+{
+    if (isDemo) return presetName (demoPresets()[(size_t) juce::jlimit (0, (int) demoPresets().size() - 1, index)]);
+    return presetName (index);
+}
+
+int MotstandProcessor::getCurrentProgram()
+{
+    if (! isDemo) return currentPreset;
+    const auto& d = demoPresets();
+    const auto it = std::find (d.begin(), d.end(), currentPreset);
+    return it == d.end() ? 0 : (int) (it - d.begin());
+}
+
+void MotstandProcessor::setCurrentProgram (int index)
+{
+    if (isDemo) loadPreset (demoPresets()[(size_t) juce::jlimit (0, (int) demoPresets().size() - 1, index)]);
+    else loadPreset (index);
+}
 
 void MotstandProcessor::loadPreset (int index)
 {
     index = juce::jlimit (0, numPresets() - 1, index);
+    if (! presetAllowed (index)) return;
     currentPreset = index;
+    demoLocked.clear();   // let the preset set everything, then lock again
     // everything back to factory defaults first (the panel language is not a parameter, it stays)
     for (auto* p : getParameters())
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
@@ -497,6 +580,7 @@ void MotstandProcessor::loadPreset (int index)
     {
         const auto fb = factoryBank();
         for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, fb[(size_t) pt]);
+        if (isDemo) captureDemoLocks();
         return;
     }
     auto set = [this] (const juce::String& id, float plain)
@@ -506,6 +590,7 @@ void MotstandProcessor::loadPreset (int index)
     };
     const auto generated = applyStyle (styles()[(size_t) index - 1], set);
     for (int pt = 0; pt < kNumPatterns; ++pt) pastePattern (pt, generated[(size_t) pt]);
+    if (isDemo) captureDemoLocks();
 }
 
 juce::AudioProcessorEditor* MotstandProcessor::createEditor()

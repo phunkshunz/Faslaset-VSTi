@@ -134,6 +134,26 @@ mindre brus i CRASH/SPRAK/METALL-ROM:arna. Fabriksmönster A har ingen ride (E �
 UNDERGÅNG-ratten är mildare (tyngd från muller och bus, lite slip och sand).
 Mätt (HF-brus över 2 kHz mellan slagen): FABRIK -32 → -36 dB, VÄRLDENS ÄNDE -26 → -33 dB, ASKREGN -30 → -36 dB.
 
+## Licens och demo (steg 5) — `src/Licens.h`, `src/Sprak.h`, `src/LicensPool.h`
+- **Licens.h och Sprak.h är samma filer som i FRÄS och de andra maskinerna.** Ändra dem inte här utan i alla.
+- `LicensPool.h` (skapad av `tools/licens_gen.py`): SHA-256-hashar (10 byte) av 2000 MOTSTÅND-nycklar
+  plus de 3000 gemensamma bundle-nycklarna (kopierade byte för byte från FRÄS). Nycklarna i klartext
+  ligger aldrig i repot (`.gitignore` spärrar `*licensnycklar*`).
+- Nyckeln sparas i den gemensamma filen MASKINHALLEN.settings: en gång räcker för alla maskiner på datorn.
+- Utan giltig nyckel: fullversionen är tyst, skickar inget MIDI och visar nyckelrutan.
+- **Demo** (`-DMOTSTAND_DEMO=ON` → MOTSTAND-DEMO, egen plugin-kod Mtdm): samma ljudmotor, 8 presets
+  (FABRIK, MOTORSTAD, BETONGVALV, TOMRUMMET, RULLGARDIN, DIMMA, ÖKENVÄGEN, PSYKOS). Öppet: mönster A–H,
+  FILL, NUDGE, MASTER, UNDERGÅNG, NIVÅ och TYST per kanal, SLAG-griden. Allt annat låst med hänglås
+  (låsta parametrar fjädrar tillbaka även vid automation), inga tärningar, inga ljudmodeller,
+  inget MIDI ut, sparar inget. KÖP FULLVERSION-knapp i toppen.
+- SV/EN delas nu med alla MASKINHALLEN-maskiner (sparas i MASKINHALLEN.settings, inte i projektet).
+- Testverktygen byggs med `MOTSTAND_TEST_UNLOCKED=1`. Det som säljs byggs aldrig så.
+
+## Zippar — `.github/workflows/zippar.yml` (startas för hand eller med tagg v*)
+Mac (universal x86_64 + arm64, macOS 11+, VST3 + AU + app, ad hoc-signerad), Windows (VST3 + exe, statisk runtime),
+Linux (VST3 + LV2). Fullversion + demo = 6 zippar, artefakter i 3 dagar. Varje zip: plugin, installera-skript
+(svenska + engelska), manual (`docs/MOTSTAND-manual.html`) och panelbild.
+
 ## Byggordning
 1. ✅ Motorkärna (klocka, drunk walk, polymeter, Smog)
 2. ✅ 909-rösterna + offline demo-rendering
@@ -145,7 +165,7 @@ Mätt (HF-brus över 2 kHz mellan slagen): FABRIK -32 → -36 dB, VÄRLDENS ÄND
 4e. ✅ 40 ljudmodeller (4 per kanal) + 49 presets i 8 kategorier, preset-bläddrare
 4f. ✅ UNDERGÅNG: MULLER, MOTOR V8, STORM + LARM, UNDERGÅNG-ratten, 16 presets (65 totalt)
 4g. ✅ Ren profil: mindre kaos och brus i alla presets, renare cymbaler
-5. Actions för Mac, Windows, Linux (zippar), licensnyckel, demo-version
+5. ✅ Licens, demo, zippar för Mac/Windows/Linux, installerare, manual (se nedan)
 
 ## Pluginet (steg 3) — `src/PluginProcessor.*`, `src/Params.h`
 - **Transport:** startar när DAW:en trycker play (första slaget landar direkt), tyst när den står still.
